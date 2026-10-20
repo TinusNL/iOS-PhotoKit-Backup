@@ -67,6 +67,117 @@ enum PendingUploads {
   }
 }
 
+struct ListedUpload: Identifiable, Hashable, Sendable {
+  var id: String
+  var assetId: String
+  var title: String
+  var subtitle: String
+  var bytes: Int?
+}
+
+enum UploadGroups {
+  private static let stillExtensions: Set<String> = ["heic", "heif", "jpg", "jpeg", "png"]
+
+  static func pending(expected: [ExpectedUpload], uploaded: [String: Set<String>]) -> [ListedUpload]
+  {
+    let missing = PendingUploads.missing(expected: expected, uploaded: uploaded)
+    var order: [String] = []
+    var buckets: [String: [ExpectedUpload]] = [:]
+    for item in missing {
+      if buckets[item.assetId] == nil {
+        order.append(item.assetId)
+      }
+      buckets[item.assetId, default: []].append(item)
+    }
+
+    return order.flatMap { assetId in
+      let items = buckets[assetId] ?? []
+      let photo = items.first { $0.resourceType == "photo" }
+      if let photo, items.contains(where: { $0.resourceType == "pairedVideo" }) {
+        return [
+          ListedUpload(
+            id: assetId,
+            assetId: assetId,
+            title: photo.filename,
+            subtitle: photo.relativePath,
+            bytes: nil
+          )
+        ]
+      }
+      return items.map { item in
+        ListedUpload(
+          id: item.key,
+          assetId: item.assetId,
+          title: item.filename,
+          subtitle: item.relativePath,
+          bytes: nil
+        )
+      }
+    }
+  }
+
+  static func recent(files: [RemoteFile], library: [ExpectedUpload]) -> [ListedUpload] {
+    let assetByFilename = assetIds(in: library)
+    let paired = pairedStems(in: files)
+    var rows: [ListedUpload] = []
+    for file in files {
+      let stem = stemKey(folderAndName: file)
+      if fileExtension(file.filename) == "mov", paired.contains(stem) {
+        continue
+      }
+      let partners =
+        paired.contains(stem) ? files.filter { stemKey(folderAndName: $0) == stem } : [file]
+      let primary = partners.first { stillExtensions.contains(fileExtension($0.filename)) } ?? file
+      rows.append(
+        ListedUpload(
+          id: paired.contains(stem) ? "live:\(stem)" : file.relativePath,
+          assetId: assetByFilename[filenameKey(primary.filename)] ?? "",
+          title: primary.filename,
+          subtitle: primary.relativePath,
+          bytes: partners.reduce(0) { $0 + $1.bytes }
+        )
+      )
+    }
+    return rows
+  }
+
+  private static func assetIds(in library: [ExpectedUpload]) -> [String: String] {
+    var assetByFilename: [String: String] = [:]
+    for item in library {
+      assetByFilename[filenameKey(item.filename)] = item.assetId
+    }
+    return assetByFilename
+  }
+
+  private static func pairedStems(in files: [RemoteFile]) -> Set<String> {
+    var stills: Set<String> = []
+    var movies: Set<String> = []
+    for file in files {
+      let key = stemKey(folderAndName: file)
+      if stillExtensions.contains(fileExtension(file.filename)) {
+        stills.insert(key)
+      } else if fileExtension(file.filename) == "mov" {
+        movies.insert(key)
+      }
+    }
+    return stills.intersection(movies)
+  }
+
+  private static func stemKey(folderAndName file: RemoteFile) -> String {
+    let folder = (file.relativePath as NSString).deletingLastPathComponent
+    let stem = URL(fileURLWithPath: file.filename).deletingPathExtension().lastPathComponent
+    return "\(folder)/\(filenameKey(stem))"
+  }
+
+  private static func fileExtension(_ filename: String) -> String {
+    URL(fileURLWithPath: filename).pathExtension.lowercased()
+  }
+
+  private static func filenameKey(_ filename: String) -> String {
+    filename.precomposedStringWithCanonicalMapping.lowercased()
+  }
+}
+
 enum ServerAddress {
   static func normalize(_ raw: String) -> URL? {
     var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)

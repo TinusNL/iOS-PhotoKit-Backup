@@ -8,10 +8,15 @@ final class BackupModel {
   var serverField = ""
   var apiKeyField = ""
   var accountName = ""
-  var recent: [RemoteFile] = []
+  var recentRows: [ListedUpload] = []
   var recentTotal = 0
+  var recentLoaded: Int { recentFiles.count }
   var isLoadingMoreRecent = false
-  var pending: [ExpectedUpload] = []
+  var pending: [ListedUpload] = []
+  var pendingShown = 0
+  var isLoadingPending = false
+  var hasMorePending: Bool { pendingIndex < pendingAssetCount }
+  var pendingIsComplete: Bool { didCheckPending && !hasMorePending }
   var uploadLivePhotoMovies = true
   var isSignedIn = false
   var isWorking = false
@@ -32,7 +37,27 @@ final class BackupModel {
     model.apiKeyField = "preview-key"
     model.photoStatus = photoStatus
     model.uploadLivePhotoMovies = uploadLivePhotoMovies
-    model.recent = [
+    let uploadedLive = [
+      ExpectedUpload(
+        assetId: "preview-uploaded", resourceType: "photo", filename: "IMG_2456.HEIC",
+        relativePath: "2026/10/IMG_2456.HEIC", isoTimestamp: "2026-10-20T12:00:00+02:00"),
+      ExpectedUpload(
+        assetId: "preview-uploaded", resourceType: "pairedVideo", filename: "IMG_2456.MOV",
+        relativePath: "2026/10/IMG_2456.MOV", isoTimestamp: "2026-10-20T12:00:00+02:00"),
+    ]
+    let waiting = [
+      ExpectedUpload(
+        assetId: "preview-live", resourceType: "photo", filename: "IMG_3102.HEIC",
+        relativePath: "2026/10/IMG_3102.HEIC", isoTimestamp: "2026-10-20T15:02:00+02:00"),
+      ExpectedUpload(
+        assetId: "preview-live", resourceType: "pairedVideo", filename: "IMG_3102.MOV",
+        relativePath: "2026/10/IMG_3102.MOV", isoTimestamp: "2026-10-20T15:02:00+02:00"),
+      ExpectedUpload(
+        assetId: "preview-video", resourceType: "video", filename: "IMG_3104.MP4",
+        relativePath: "2026/10/IMG_3104.MP4", isoTimestamp: "2026-10-18T09:41:00+02:00"),
+    ]
+    model.expectedUploads = uploadedLive + waiting
+    model.recentFiles = [
       RemoteFile(
         filename: "IMG_2456.HEIC", relativePath: "2026/10/IMG_2456.HEIC", bytes: 2_481_332,
         contentType: "image/heic", createdAt: "2026-10-01T00:00:00.000Z",
@@ -46,18 +71,14 @@ final class BackupModel {
         contentType: "image/jpeg", createdAt: "2019-03-01T00:00:00.000Z",
         uploadedAt: "2026-10-19T18:12:00.000Z"),
     ]
-    model.recentTotal = model.recent.count
-    model.pending = [
-      ExpectedUpload(
-        assetId: "preview-live", resourceType: "photo", filename: "IMG_3102.HEIC",
-        relativePath: "2026/10/IMG_3102.HEIC", isoTimestamp: "2026-10-20T15:02:00+02:00"),
-      ExpectedUpload(
-        assetId: "preview-live", resourceType: "pairedVideo", filename: "IMG_3102.MOV",
-        relativePath: "2026/10/IMG_3102.MOV", isoTimestamp: "2026-10-20T15:02:00+02:00"),
-      ExpectedUpload(
-        assetId: "preview-video", resourceType: "video", filename: "IMG_3104.MP4",
-        relativePath: "2026/10/IMG_3104.MP4", isoTimestamp: "2026-10-18T09:41:00+02:00"),
-    ]
+    model.recentRows = UploadGroups.recent(files: model.recentFiles, library: model.expectedUploads)
+    model.recentTotal = model.recentFiles.count
+    model.pending = UploadGroups.pending(
+      expected: waiting,
+      uploaded: ["preview-live": ["photo"]]
+    )
+    model.pendingShown = model.pending.count
+    model.didCheckPending = true
     return model
   }
 
@@ -125,24 +146,37 @@ final class BackupModel {
       recentGeneration = generation
       let page = try await client.recent(limit: Self.recentPageSize)
       guard generation == recentGeneration else { return }
-      recent = page.items
+      replaceRecent(page.items)
       recentTotal = page.total
       await Task.yield()
-      let expected = LibraryScanner.expected(uploadLivePhotoMovies: settings.uploadLivePhotoMovies)
-      let stored = try await client.lookup(expected)
-      pending = PendingUploads.missing(expected: expected, uploaded: stored)
+      pendingGeneration += 1
+      pending = []
+      pendingShown = 0
+      pendingIndex = 0
+      pendingAssetCount = 0
+      didCheckPending = false
+      expectedUploads = []
       statusMessage = nil
+      isWorking = false
+      let pendingScan = pendingGeneration
+      isLoadingPending = true
+      await loadPendingPage(limit: Self.pendingPageSize)
+      guard pendingScan == pendingGeneration else { return }
+      isLoadingPending = false
+      await countRemainingPending()
     } catch {
       statusMessage = error.localizedDescription
     }
   }
 
   func loadMoreRecent() async {
-    guard !isPreview, !isWorking, !isLoadingMoreRecent, recent.count < recentTotal else { return }
+    guard !isPreview, !isWorking, !isLoadingMoreRecent, recentFiles.count < recentTotal else {
+      return
+    }
     guard let settings = BackupSettings.load() else { return }
     isLoadingMoreRecent = true
     let generation = recentGeneration
-    let offset = recent.count
+    let offset = recentFiles.count
     defer { isLoadingMoreRecent = false }
     do {
       let page = try await BackupClient(baseURL: settings.serverURL, apiKey: settings.apiKey)
@@ -152,11 +186,17 @@ final class BackupModel {
         )
       guard generation == recentGeneration else { return }
       recentTotal = page.total
-      let known = Set(recent.map(\.id))
-      recent.append(contentsOf: page.items.filter { !known.contains($0.id) })
+      let known = Set(recentFiles.map(\.id))
+      recentFiles.append(contentsOf: page.items.filter { !known.contains($0.id) })
+      recentRows = UploadGroups.recent(files: recentFiles, library: expectedUploads)
     } catch {
       statusMessage = error.localizedDescription
     }
+  }
+
+  func loadMorePending() {
+    guard pendingShown < pending.count else { return }
+    pendingShown = min(pending.count, pendingShown + Self.pendingPageSize)
   }
 
   func setUploadLivePhotoMovies(_ enabled: Bool) {
@@ -169,37 +209,126 @@ final class BackupModel {
     guard !isPreview else {
       isSignedIn = false
       accountName = ""
-      recent = []
+      recentFiles = []
+      recentRows = []
       recentTotal = 0
       pending = []
+      pendingShown = 0
+      isLoadingPending = false
+      pendingIndex = 0
+      pendingAssetCount = 0
+      didCheckPending = false
       return
     }
-    let library = PHPhotoLibrary.shared()
-    if library.uploadJobExtensionEnabled {
-      try? library.disableUploadJobExtension()
+    let photoLibrary = PHPhotoLibrary.shared()
+    if photoLibrary.uploadJobExtensionEnabled {
+      try? photoLibrary.disableUploadJobExtension()
     }
     BackupSettings.signOut()
     apiKeyField = ""
     accountName = ""
     recentGeneration += 1
-    recent = []
+    pendingGeneration += 1
+    recentFiles = []
+    recentRows = []
     recentTotal = 0
+    expectedUploads = []
     pending = []
+    pendingShown = 0
+    isLoadingPending = false
+    pendingIndex = 0
+    pendingAssetCount = 0
+    didCheckPending = false
     isSignedIn = false
     statusMessage = nil
   }
 
-  private static let recentPageSize = 40
+  private static let pendingPageSize = 5
+  private static let recentPageSize = 10
+  private var recentFiles: [RemoteFile] = []
+  private var expectedUploads: [ExpectedUpload] = []
   private var recentGeneration = 0
+  private var pendingGeneration = 0
+  private var pendingIndex = 0
+  private var pendingAssetCount = 0
+  private var didCheckPending = false
+
+  private func countRemainingPending() async {
+    guard hasMorePending else { return }
+    let generation = pendingGeneration
+    isLoadingPending = true
+    defer {
+      if generation == pendingGeneration {
+        isLoadingPending = false
+      }
+    }
+    let settings = BackupSettings.load()
+    let start = pendingIndex
+    let movies = settings?.uploadLivePhotoMovies ?? true
+    let page = await Task.detached(priority: .utility) {
+      LibraryScanner.page(
+        start: start, limit: Int.max / 4, uploadLivePhotoMovies: movies)
+    }.value
+    guard generation == pendingGeneration else { return }
+    await applyPending(page, generation: generation)
+  }
+
+  private func loadPendingPage(limit: Int) async {
+    let generation = pendingGeneration
+    guard let settings = BackupSettings.load() else { return }
+    let start = pendingIndex
+    let movies = settings.uploadLivePhotoMovies
+    let page = await Task.detached(priority: .userInitiated) {
+      LibraryScanner.page(start: start, limit: limit, uploadLivePhotoMovies: movies)
+    }.value
+    guard generation == pendingGeneration else { return }
+    await applyPending(page, generation: generation)
+  }
+
+  private func applyPending(_ page: LibraryPage, generation: Int) async {
+    guard generation == pendingGeneration else { return }
+    guard let settings = BackupSettings.load() else { return }
+    pendingIndex = page.nextIndex
+    pendingAssetCount = page.total
+    let client = BackupClient(baseURL: settings.serverURL, apiKey: settings.apiKey)
+    let chunkSize = 200
+    var index = 0
+    while index < page.uploads.count {
+      guard generation == pendingGeneration else { return }
+      let end = min(index + chunkSize, page.uploads.count)
+      let slice = Array(page.uploads[index..<end])
+      do {
+        let stored = try await client.lookup(slice)
+        guard generation == pendingGeneration else { return }
+        expectedUploads.append(contentsOf: slice)
+        pending.append(contentsOf: UploadGroups.pending(expected: slice, uploaded: stored))
+        if pendingShown == 0, !pending.isEmpty {
+          pendingShown = min(Self.pendingPageSize, pending.count)
+        }
+      } catch {
+        statusMessage = error.localizedDescription
+        return
+      }
+      index = end
+      await Task.yield()
+    }
+    recentRows = UploadGroups.recent(files: recentFiles, library: expectedUploads)
+    didCheckPending = !hasMorePending
+  }
+
+  private func replaceRecent(_ files: [RemoteFile]) {
+    recentFiles = files
+    recentRows = UploadGroups.recent(files: files, library: expectedUploads)
+  }
 
   private func enableUploadsIfAuthorized() async {
     let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     photoStatus = status
     guard status == .authorized else { return }
-    let library = PHPhotoLibrary.shared()
-    guard !library.uploadJobExtensionEnabled else { return }
+    let photoLibrary = PHPhotoLibrary.shared()
+    guard !photoLibrary.uploadJobExtensionEnabled else { return }
     do {
-      try library.enableUploadJobExtension(with: nil)
+      try photoLibrary.enableUploadJobExtension(with: nil)
     } catch {
       statusMessage = error.localizedDescription
     }

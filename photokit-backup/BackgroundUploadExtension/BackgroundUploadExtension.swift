@@ -7,7 +7,7 @@ import Synchronization
 @main
 final class BackgroundUploadExtension: PHBackgroundResourceUploadJobExtension, @unchecked Sendable {
   private let cancelled = Atomic<Bool>(false)
-  private let cursorKey = "libraryCursor"
+  private let cursorKey = "libraryCursorOldest"
 
   required init() {}
 
@@ -84,69 +84,85 @@ final class BackgroundUploadExtension: PHBackgroundResourceUploadJobExtension, @
     if cursor < 0 || cursor > assets.count {
       cursor = 0
     }
-    let batchStart = cursor
+
     let inflight = inflightKeys()
-    var batch: [LibraryUpload] = []
-    while cursor < assets.count && batch.count < 100 {
+    let client = BackupClient(baseURL: settings.serverURL, apiKey: settings.apiKey)
+    var scanned = 0
+
+    while cursor < assets.count && scanned < 400 {
       if cancelled.load(ordering: .acquiring) {
+        AppGroup.defaults.set(cursor, forKey: cursorKey)
         return true
       }
-      let asset = assets.object(at: cursor)
-      cursor += 1
-      for upload in LibraryScanner.uploads(
-        for: asset, uploadLivePhotoMovies: settings.uploadLivePhotoMovies)
-      {
-        if inflight.contains(upload.expected.key) || FailureLedger.shouldSkip(upload.expected.key) {
+      let sliceEnd = min(cursor + 40, assets.count)
+      var grouped: [(index: Int, uploads: [LibraryUpload])] = []
+      var expected: [ExpectedUpload] = []
+      for index in cursor..<sliceEnd {
+        let uploads = LibraryScanner.uploads(
+          for: assets.object(at: index),
+          uploadLivePhotoMovies: settings.uploadLivePhotoMovies
+        )
+        grouped.append((index, uploads))
+        expected.append(contentsOf: uploads.map(\.expected))
+      }
+      scanned += sliceEnd - cursor
+      let stored = expected.isEmpty ? [:] : try await client.lookup(expected)
+      let missingKeys = Set(
+        PendingUploads.missing(expected: expected, uploaded: stored).map(\.key))
+
+      for group in grouped {
+        let missing = group.uploads.filter {
+          missingKeys.contains($0.expected.key) && !FailureLedger.shouldSkip($0.expected.key)
+        }
+        if missing.isEmpty {
           continue
         }
-        batch.append(upload)
+        AppGroup.defaults.set(group.index, forKey: cursorKey)
+        let upload = missing.first { !inflight.contains($0.expected.key) } ?? missing[0]
+        cancelJobs(except: upload.expected.key)
+        guard !inflight.contains(upload.expected.key),
+          let request = UploadRequest.make(settings: settings, item: upload.expected)
+        else {
+          return true
+        }
+        do {
+          try await library.performChanges {
+            _ = PHAssetResourceUploadJobChangeRequest.creationRequestForJob(
+              destination: request,
+              resource: upload.resource
+            )
+          }
+        } catch {
+          if isLimitExceeded(error) {
+            throw LimitExceeded()
+          }
+          throw error
+        }
+        return true
       }
+
+      cursor = sliceEnd
+      AppGroup.defaults.set(cursor, forKey: cursorKey)
     }
 
-    if batch.isEmpty {
+    if cursor >= assets.count {
       AppGroup.defaults.set(0, forKey: cursorKey)
       ChangeTokenStore.save(library.currentChangeToken)
       return !inflight.isEmpty
     }
-
-    let stored = try await BackupClient(baseURL: settings.serverURL, apiKey: settings.apiKey)
-      .lookup(batch.map(\.expected))
-    let missingKeys = Set(
-      PendingUploads.missing(expected: batch.map(\.expected), uploaded: stored).map(\.key))
-    var created = 0
-
-    for upload in batch where missingKeys.contains(upload.expected.key) {
-      if cancelled.load(ordering: .acquiring) {
-        AppGroup.defaults.set(batchStart, forKey: cursorKey)
-        return true
-      }
-      guard let request = UploadRequest.make(settings: settings, item: upload.expected) else {
-        continue
-      }
-      do {
-        try await library.performChanges {
-          _ = PHAssetResourceUploadJobChangeRequest.creationRequestForJob(
-            destination: request,
-            resource: upload.resource
-          )
-        }
-        created += 1
-      } catch {
-        if isLimitExceeded(error) {
-          AppGroup.defaults.set(batchStart, forKey: cursorKey)
-          throw LimitExceeded()
-        }
-        throw error
-      }
-    }
-
-    AppGroup.defaults.set(cursor, forKey: cursorKey)
-    if cursor >= assets.count {
-      AppGroup.defaults.set(0, forKey: cursorKey)
-      ChangeTokenStore.save(library.currentChangeToken)
-      return created > 0 || !inflight.isEmpty
-    }
     return true
+  }
+
+  private func cancelJobs(except key: String) {
+    let jobs = PHAssetResourceUploadJob.fetchJobs(action: .process, options: nil)
+    let library = PHPhotoLibrary.shared()
+    for index in 0..<jobs.count {
+      let job = jobs.object(at: index)
+      guard uploadKey(for: job) != key else { continue }
+      try? library.performChangesAndWait {
+        PHAssetResourceUploadJobChangeRequest(for: job)?.cancel()
+      }
+    }
   }
 
   private func cancelPairedVideoJobs() throws {

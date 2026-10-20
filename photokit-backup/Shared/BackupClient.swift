@@ -22,7 +22,7 @@ struct BackupClient: Sendable {
     return try JSONDecoder().decode(SessionName.self, from: data).name
   }
 
-  func recent(limit: Int = 40, offset: Int = 0) async throws -> RecentPage {
+  func recent(limit: Int = 10, offset: Int = 0) async throws -> RecentPage {
     let (data, response) = try await session.data(
       for: request(path: "api/uploads", query: "limit=\(limit)&offset=\(offset)"))
     try validate(response, data: data)

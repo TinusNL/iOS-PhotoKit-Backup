@@ -49,6 +49,49 @@ final class PhotoKit_BackupTests: XCTestCase {
 
     let missing = PendingUploads.missing(expected: [photo, movie], uploaded: ["asset": ["photo"]])
     XCTAssertEqual(missing.map(\.filename), ["IMG_2456.MOV"])
+
+    let partial = UploadGroups.pending(expected: [photo, movie], uploaded: ["asset": ["photo"]])
+    XCTAssertEqual(partial.map(\.title), ["IMG_2456.MOV"])
+
+    let waiting = UploadGroups.pending(expected: [photo, movie], uploaded: [:])
+    XCTAssertEqual(waiting.map(\.title), ["IMG_2456.HEIC"])
+
+    let done = UploadGroups.pending(
+      expected: [photo, movie], uploaded: ["asset": ["photo", "pairedVideo"]])
+    XCTAssertTrue(done.isEmpty)
+  }
+
+  func testRecentListMergesALivePhoto() {
+    let photo = ExpectedUpload(
+      assetId: "asset",
+      resourceType: "photo",
+      filename: "IMG_2456.HEIC",
+      relativePath: "2026/10/IMG_2456.HEIC",
+      isoTimestamp: "2026-10-20T12:00:00+02:00"
+    )
+    let movie = ExpectedUpload(
+      assetId: "asset",
+      resourceType: "pairedVideo",
+      filename: "IMG_2456.MOV",
+      relativePath: "2026/10/IMG_2456.MOV",
+      isoTimestamp: "2026-10-20T12:00:00+02:00"
+    )
+    let still = RemoteFile(
+      filename: "IMG_2456.HEIC", relativePath: "2026/10/IMG_2456.HEIC", bytes: 10,
+      contentType: "image/heic", createdAt: nil, uploadedAt: "2026-10-20T12:04:00.000Z")
+    let paired = RemoteFile(
+      filename: "IMG_2456.MOV", relativePath: "2026/10/IMG_2456.MOV", bytes: 20,
+      contentType: "video/quicktime", createdAt: nil, uploadedAt: "2026-10-20T12:05:00.000Z")
+    let jpg = RemoteFile(
+      filename: "IMG_2450.JPG", relativePath: "2019/03/IMG_2450.JPG", bytes: 5,
+      contentType: "image/jpeg", createdAt: nil, uploadedAt: "2026-10-19T18:12:00.000Z")
+
+    let both = UploadGroups.recent(files: [still, paired, jpg], library: [photo, movie])
+    XCTAssertEqual(both.map(\.title), ["IMG_2456.HEIC", "IMG_2450.JPG"])
+    XCTAssertEqual(both.first?.bytes, 30)
+
+    let half = UploadGroups.recent(files: [still], library: [photo, movie])
+    XCTAssertEqual(half.map(\.title), ["IMG_2456.HEIC"])
   }
 
   func testServerAddressAcceptsHostPortAndStripsATrailingSlash() {
