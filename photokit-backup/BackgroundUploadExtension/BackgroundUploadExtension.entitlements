@@ -4,11 +4,11 @@
 <dict>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.tinus.PhotoKit-Backup</string>
+		<string>group.com.tinusnl.photokit-backup</string>
 	</array>
 	<key>keychain-access-groups</key>
 	<array>
-		<string>$(AppIdentifierPrefix)group.com.tinus.PhotoKit-Backup</string>
+		<string>$(AppIdentifierPrefix)group.com.tinusnl.photokit-backup</string>
 	</array>
 </dict>
 </plist>
