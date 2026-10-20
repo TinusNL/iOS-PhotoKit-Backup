@@ -1,6 +1,6 @@
 import Foundation
 
-enum UploadNaming {
+nonisolated enum UploadNaming {
   static func livePhotoMovieFilename(stillFilename: String) -> String {
     let stem = URL(fileURLWithPath: stillFilename).deletingPathExtension().lastPathComponent
     return (stem.isEmpty ? "IMG" : stem) + ".MOV"
