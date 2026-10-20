@@ -7,5 +7,5 @@ services:
       - ./config.json:/config/config.json:ro
       # Each API key directory in config.json is a path inside the container.
       # Bind it to that person's Photos folder on the NAS.
-      - /volume1/photo/tinus:/data/tinus
+      - /volume1/homes/tinus/Photos/test:/data/tinus
     restart: unless-stopped

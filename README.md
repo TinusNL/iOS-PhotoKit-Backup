@@ -11,7 +11,7 @@ A Live Photo is two files with the same name, for example `IMG_2456.HEIC` and `I
 
 You need a machine that can run the proxy (a Synology is the example below) and a physical iPhone on iOS 27. The upload extension does not run in the Simulator.
 
-1. Create the folder that should receive the photos. On a Synology that is often a personal Photos folder, for example `/volume1/photo/tinus`. Any existing files there are kept. A filename that is already in the folder is not uploaded again.
+1. Create the folder that should receive the photos. On Synology Photos that is a folder inside the personal library, for example `/volume1/homes/tinus/Photos/test`. Any existing files there are kept. A filename that is already in the folder is not uploaded again.
 
 2. On that machine, save [`photokit-backup-proxy/docker-compose.yml`](photokit-backup-proxy/docker-compose.yml) and a `config.json` next to it:
 
@@ -27,7 +27,7 @@ You need a machine that can run the proxy (a Synology is the example below) and 
 Change `apiKey`. In the Compose file, the left side of the volume must be your folder and the right side must match `directory`:
 
 ```yaml
-- /volume1/photo/tinus:/data/tinus
+- /volume1/homes/tinus/Photos/test:/data/tinus
 ```
 
 3. Start it and check that it answers:

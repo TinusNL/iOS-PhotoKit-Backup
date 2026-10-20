@@ -33,7 +33,7 @@ services:
       - "8080:8080"
     volumes:
       - ./config.json:/config/config.json:ro
-      - /volume1/photo/tinus:/data/tinus
+      - /volume1/homes/tinus/Photos/test:/data/tinus
     restart: unless-stopped
 ```
 
