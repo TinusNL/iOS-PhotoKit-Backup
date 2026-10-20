@@ -26,6 +26,11 @@ struct AssetThumbnail: View {
   }
 }
 
+#Preview("Thumbnail") {
+  AssetThumbnail(assetId: "")
+    .padding()
+}
+
 private enum ThumbnailLoader {
   private static let cache = ThumbnailCache()
 

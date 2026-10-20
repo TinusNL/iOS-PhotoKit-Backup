@@ -37,14 +37,16 @@ final class PhotoKit_BackupTests: XCTestCase {
       resourceType: "photo",
       filename: "IMG_2456.HEIC",
       relativePath: "2026/10/IMG_2456.HEIC",
-      isoTimestamp: "2026-10-20T12:00:00+02:00"
+      isoTimestamp: "2026-10-20T12:00:00+02:00",
+      bytes: 10
     )
     let movie = ExpectedUpload(
       assetId: "asset",
       resourceType: "pairedVideo",
       filename: "IMG_2456.MOV",
       relativePath: "2026/10/IMG_2456.MOV",
-      isoTimestamp: "2026-10-20T12:00:00+02:00"
+      isoTimestamp: "2026-10-20T12:00:00+02:00",
+      bytes: 20
     )
 
     let missing = PendingUploads.missing(expected: [photo, movie], uploaded: ["asset": ["photo"]])
@@ -52,9 +54,13 @@ final class PhotoKit_BackupTests: XCTestCase {
 
     let partial = UploadGroups.pending(expected: [photo, movie], uploaded: ["asset": ["photo"]])
     XCTAssertEqual(partial.map(\.title), ["IMG_2456.MOV"])
+    XCTAssertEqual(partial.first?.bytes, 20)
+    XCTAssertEqual(partial.first?.isLivePhoto, true)
 
     let waiting = UploadGroups.pending(expected: [photo, movie], uploaded: [:])
     XCTAssertEqual(waiting.map(\.title), ["IMG_2456.HEIC"])
+    XCTAssertEqual(waiting.first?.bytes, 30)
+    XCTAssertEqual(waiting.first?.isLivePhoto, true)
 
     let done = UploadGroups.pending(
       expected: [photo, movie], uploaded: ["asset": ["photo", "pairedVideo"]])
@@ -89,6 +95,8 @@ final class PhotoKit_BackupTests: XCTestCase {
     let both = UploadGroups.recent(files: [still, paired, jpg], library: [photo, movie])
     XCTAssertEqual(both.map(\.title), ["IMG_2456.HEIC", "IMG_2450.JPG"])
     XCTAssertEqual(both.first?.bytes, 30)
+    XCTAssertEqual(both.first?.isLivePhoto, true)
+    XCTAssertEqual(both.last?.isLivePhoto, false)
 
     let half = UploadGroups.recent(files: [still], library: [photo, movie])
     XCTAssertEqual(half.map(\.title), ["IMG_2456.HEIC"])

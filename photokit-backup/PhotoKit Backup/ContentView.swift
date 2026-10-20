@@ -1,18 +1,69 @@
 import SwiftUI
 
 struct ContentView: View {
-  @State private var model = BackupModel()
+  @State private var model: BackupModel
+
+  init() {
+    _model = State(initialValue: BackupModel())
+  }
+
+  init(model: BackupModel) {
+    _model = State(initialValue: model)
+  }
 
   var body: some View {
     Group {
-      if !model.didCompleteOnboarding {
-        OnboardingView(model: model)
-      } else if model.isSignedIn {
-        BackupHomeView(model: model)
+      if model.isSignedIn {
+        BackupTabView(model: model)
       } else {
-        ConnectView(model: model)
+        NavigationStack {
+          if model.didCompleteOnboarding {
+            ConnectView(model: model)
+          } else {
+            OnboardingView(model: model)
+          }
+        }
       }
     }
     .onAppear { model.restore() }
   }
+}
+
+struct BackupTabView: View {
+  @Bindable var model: BackupModel
+
+  var body: some View {
+    TabView {
+      Tab("Backup", systemImage: "icloud") {
+        BackupHomeView(model: model)
+      }
+      Tab("Settings", systemImage: "slider.horizontal.3") {
+        SettingsView(model: model)
+      }
+    }
+  }
+}
+
+#Preview("Welcome") {
+  ContentView(model: previewModel(onboarded: false, signedIn: false))
+}
+
+#Preview("Connect flow") {
+  ContentView(model: previewModel(onboarded: true, signedIn: false))
+}
+
+#Preview("Backup") {
+  ContentView(model: .preview())
+}
+
+#Preview("Tabs") {
+  BackupTabView(model: .preview())
+}
+
+private func previewModel(onboarded: Bool, signedIn: Bool) -> BackupModel {
+  let model = BackupModel()
+  model.isPreview = true
+  model.didCompleteOnboarding = onboarded
+  model.isSignedIn = signedIn
+  return model
 }

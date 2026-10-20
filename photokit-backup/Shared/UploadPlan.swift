@@ -52,6 +52,7 @@ struct ExpectedUpload: Hashable, Identifiable, Sendable {
   var filename: String
   var relativePath: String
   var isoTimestamp: String
+  var bytes: Int? = nil
 
   var id: String { key }
   var key: String { "\(assetId)|\(resourceType)" }
@@ -73,6 +74,7 @@ struct ListedUpload: Identifiable, Hashable, Sendable {
   var title: String
   var subtitle: String
   var bytes: Int?
+  var isLivePhoto: Bool = false
 }
 
 enum UploadGroups {
@@ -100,7 +102,8 @@ enum UploadGroups {
             assetId: assetId,
             title: photo.filename,
             subtitle: photo.relativePath,
-            bytes: nil
+            bytes: totalBytes(items),
+            isLivePhoto: true
           )
         ]
       }
@@ -110,7 +113,8 @@ enum UploadGroups {
           assetId: item.assetId,
           title: item.filename,
           subtitle: item.relativePath,
-          bytes: nil
+          bytes: item.bytes,
+          isLivePhoto: item.resourceType == "pairedVideo"
         )
       }
     }
@@ -134,11 +138,18 @@ enum UploadGroups {
           assetId: assetByFilename[filenameKey(primary.filename)] ?? "",
           title: primary.filename,
           subtitle: primary.relativePath,
-          bytes: partners.reduce(0) { $0 + $1.bytes }
+          bytes: partners.reduce(0) { $0 + $1.bytes },
+          isLivePhoto: paired.contains(stem)
         )
       )
     }
     return rows
+  }
+
+  private static func totalBytes(_ items: [ExpectedUpload]) -> Int? {
+    let known = items.compactMap(\.bytes)
+    guard !known.isEmpty else { return nil }
+    return known.reduce(0, +)
   }
 
   private static func assetIds(in library: [ExpectedUpload]) -> [String: String] {
