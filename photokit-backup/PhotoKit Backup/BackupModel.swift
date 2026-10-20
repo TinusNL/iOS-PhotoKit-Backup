@@ -150,8 +150,30 @@ final class BackupModel {
     }
   }
 
+  /// Starts a library load once. Later appearances reuse it, including while it is still running.
+  func loadIfNeeded() {
+    guard !isPreview, libraryTask == nil else { return }
+    libraryGeneration += 1
+    let generation = libraryGeneration
+    libraryTask = Task.detached { @MainActor in
+      await self.refreshLibrary(generation: generation)
+    }
+  }
+
   func refresh() async {
     guard !isPreview else { return }
+    libraryTask?.cancel()
+    libraryGeneration += 1
+    let generation = libraryGeneration
+    let task = Task.detached { @MainActor in
+      await self.refreshLibrary(generation: generation)
+    }
+    libraryTask = task
+    await task.value
+  }
+
+  private func refreshLibrary(generation: Int) async {
+    guard generation == libraryGeneration else { return }
     guard let settings = BackupSettings.load() else {
       isSignedIn = false
       return
@@ -164,14 +186,16 @@ final class BackupModel {
     do {
       let client = BackupClient(baseURL: settings.serverURL, apiKey: settings.apiKey)
       accountName = try await client.sessionName()
+      guard generation == libraryGeneration else { return }
       serverReachable = true
-      let generation = recentGeneration + 1
-      recentGeneration = generation
+      let recentScan = recentGeneration + 1
+      recentGeneration = recentScan
       let page = try await client.recent(limit: Self.recentPageSize)
-      guard generation == recentGeneration else { return }
+      guard generation == libraryGeneration, recentScan == recentGeneration else { return }
       replaceRecent(page.items)
       recentTotal = page.total
       await Task.yield()
+      guard generation == libraryGeneration else { return }
       pendingGeneration += 1
       pending = []
       pendingShown = 0
@@ -186,7 +210,7 @@ final class BackupModel {
       let pendingScan = pendingGeneration
       isLoadingPending = true
       await loadPendingPage(limit: Self.pendingPageSize, priority: .userInitiated)
-      guard pendingScan == pendingGeneration else { return }
+      guard generation == libraryGeneration, pendingScan == pendingGeneration else { return }
       isLoadingPending = false
       await countRemainingPending()
     } catch {
@@ -320,6 +344,9 @@ final class BackupModel {
     if photoLibrary.uploadJobExtensionEnabled {
       try? photoLibrary.disableUploadJobExtension()
     }
+    libraryTask?.cancel()
+    libraryTask = nil
+    libraryGeneration += 1
     BackupSettings.signOut()
     apiKeyField = ""
     accountName = ""
@@ -342,9 +369,11 @@ final class BackupModel {
 
   static let browsePageSize = 50
   static let homePendingPreview = 5
-  static let homeRecentPreview = 10
+  static let homeRecentPreview = 5
   private static let pendingPageSize = 5
   private static let recentPageSize = 10
+  private var libraryTask: Task<Void, Never>?
+  private var libraryGeneration = 0
   private var recentFiles: [RemoteFile] = []
   private var expectedUploads: [ExpectedUpload] = []
   private var recentGeneration = 0

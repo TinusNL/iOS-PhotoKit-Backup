@@ -1,8 +1,10 @@
 import Foundation
+import Photos
 import SwiftUI
 
 struct UploadRow: View {
   var item: ListedUpload
+  @State private var loadedBytes: Int?
 
   var body: some View {
     HStack(spacing: 12) {
@@ -22,12 +24,40 @@ struct UploadRow: View {
           .foregroundStyle(.secondary)
       }
       Spacer(minLength: 8)
-      if let bytes = item.bytes {
+      if let bytes = item.bytes ?? loadedBytes {
         Text(ByteText.file(bytes))
           .font(.subheadline)
           .foregroundStyle(.secondary)
       }
     }
+    .task(id: item.assetId) {
+      guard item.bytes == nil else { return }
+      loadedBytes = await FileSizeLoader.bytes(assetId: item.assetId, isLivePhoto: item.isLivePhoto)
+    }
+  }
+}
+
+private enum FileSizeLoader {
+  static func bytes(assetId: String, isLivePhoto: Bool) async -> Int? {
+    guard !assetId.isEmpty else { return nil }
+    let assets = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil)
+    guard let asset = assets.firstObject else { return nil }
+    var total = 0
+    var found = false
+    for resource in PHAssetResource.assetResources(for: asset) {
+      guard let dataSize = resource.dataSize else { continue }
+      switch resource.type {
+      case .photo, .video:
+        total += dataSize
+        found = true
+      case .pairedVideo where isLivePhoto:
+        total += dataSize
+        found = true
+      default:
+        break
+      }
+    }
+    return found ? total : nil
   }
 }
 

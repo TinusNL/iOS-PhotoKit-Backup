@@ -63,21 +63,16 @@ enum LibraryScanner {
     for asset: PHAsset, uploadLivePhotoMovies: Bool
   ) -> [ExpectedUpload] {
     let timestamp = UploadNaming.isoTimestamp(for: asset.creationDate ?? Date())
-    let sizes = fileSizes(for: asset)
     let original = asset.extendedMetadata.originalFilename
     if let original, !original.isEmpty {
       if asset.mediaType == .video {
         return [
-          expected(
-            asset: asset, resourceType: "video", filename: original, timestamp: timestamp,
-            bytes: sizes["video"])
+          expected(asset: asset, resourceType: "video", filename: original, timestamp: timestamp)
         ]
       }
       if asset.mediaType == .image {
         var items = [
-          expected(
-            asset: asset, resourceType: "photo", filename: original, timestamp: timestamp,
-            bytes: sizes["photo"])
+          expected(asset: asset, resourceType: "photo", filename: original, timestamp: timestamp)
         ]
         if uploadLivePhotoMovies, asset.mediaSubtypes.contains(.photoLive) {
           items.append(
@@ -85,8 +80,7 @@ enum LibraryScanner {
               asset: asset,
               resourceType: "pairedVideo",
               filename: UploadNaming.livePhotoMovieFilename(stillFilename: original),
-              timestamp: timestamp,
-              bytes: sizes["pairedVideo"]
+              timestamp: timestamp
             ))
         }
         return items
@@ -128,24 +122,6 @@ enum LibraryScanner {
     }
 
     return items
-  }
-
-  private nonisolated static func fileSizes(for asset: PHAsset) -> [String: Int] {
-    var sizes: [String: Int] = [:]
-    for resource in PHAssetResource.assetResources(for: asset) {
-      guard let dataSize = resource.dataSize else { continue }
-      switch resource.type {
-      case .photo:
-        sizes["photo"] = dataSize
-      case .pairedVideo:
-        sizes["pairedVideo"] = dataSize
-      case .video:
-        sizes["video"] = dataSize
-      default:
-        break
-      }
-    }
-    return sizes
   }
 
   private nonisolated static func resourceFilename(_ resource: PHAssetResource) -> String {

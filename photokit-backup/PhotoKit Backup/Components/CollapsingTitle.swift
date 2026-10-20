@@ -19,12 +19,6 @@ struct CollapsingTitleModifier: ViewModifier {
             .opacity(progress)
         }
       }
-      .scrollEdgeEffectHidden(true, for: .top)
-      .toolbarBackground(
-        Color(.systemGroupedBackground).opacity(progress),
-        for: .navigationBar
-      )
-      .toolbarBackgroundVisibility(.visible, for: .navigationBar)
       .onScrollGeometryChange(for: CGFloat.self) { geometry in
         let scrolled = geometry.contentOffset.y + geometry.contentInsets.top
         let traveled = max(0, scrolled - Self.lead)

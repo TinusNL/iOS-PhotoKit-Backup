@@ -120,6 +120,7 @@ struct PendingUploadsSection: View {
         count: items.isEmpty ? nil : items.count,
         browse: items.isEmpty ? nil : .pending
       )
+      .padding(.top, -8)
     }
   }
 }

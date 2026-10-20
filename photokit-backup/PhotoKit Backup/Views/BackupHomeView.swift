@@ -3,13 +3,13 @@ import SwiftUI
 
 struct BackupHomeView: View {
   @Bindable var model: BackupModel
-  @State private var titleProgress: CGFloat = 0
 
   var body: some View {
     NavigationStack {
       backupList
         .background(Color(.systemGroupedBackground))
-        .collapsingTitle("Backup", progress: $titleProgress)
+        .navigationTitle("Backup")
+        .navigationBarTitleDisplayMode(.large)
         .navigationDestination(for: BackupFileList.self) { list in
           FilesView(model: model, list: list)
         }
@@ -19,21 +19,15 @@ struct BackupHomeView: View {
   private var backupList: some View {
     List {
       Section {
-        VStack(alignment: .leading, spacing: 2) {
-          Text("Backup")
-            .font(.largeTitle.bold())
-            .opacity(1 - titleProgress)
-          ServerStatusRow(
-            reachable: model.serverReachable,
-            address: model.serverField,
-            showsStatus: false
-          )
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
-          .opacity(1 - min(1, titleProgress * 1.8))
-        }
+        ServerStatusRow(
+          reachable: model.serverReachable,
+          address: model.serverField,
+          showsStatus: false
+        )
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 8, trailing: 20))
+        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
       }
@@ -61,8 +55,10 @@ struct BackupHomeView: View {
       )
     }
     .contentMargins(.top, 0, for: .scrollContent)
+    .listSectionSpacing(8)
+    .padding(.top, -20)
     .refreshable { await model.refresh() }
-    .task { await model.refresh() }
+    .onAppear { model.loadIfNeeded() }
   }
 
   private var waitingCount: Int? {
