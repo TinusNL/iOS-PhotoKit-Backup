@@ -21,12 +21,14 @@ The file is read once at startup. Edit it, then restart the container.
 
 ## Synology
 
+Pushes to `main` publish `ghcr.io/tinusnl/ios-photokit-backup:latest` for both Intel and ARM NASs. Public images on GitHub Container Registry are free. The first publish may stay private until the package visibility is set to Public, which lets the NAS pull it without a login.
+
 In Container Manager, create a project from `docker-compose.yml`. Point each volume at that person’s Photos folder:
 
 ```yaml
 services:
   proxy:
-    build: .
+    image: ghcr.io/tinusnl/ios-photokit-backup:latest
     ports:
       - "8080:8080"
     volumes:

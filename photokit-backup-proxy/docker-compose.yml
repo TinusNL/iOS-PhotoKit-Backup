@@ -1,6 +1,6 @@
 services:
   proxy:
-    build: .
+    image: ghcr.io/tinusnl/ios-photokit-backup:latest
     ports:
       - "8080:8080"
     volumes:

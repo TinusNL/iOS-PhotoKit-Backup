@@ -19,7 +19,7 @@ While debugging, turn on Settings → Developer → Resource Upload Test Mode.
 
 ## Proxy
 
-The server is in [`photokit-backup-proxy`](photokit-backup-proxy). It is a Node.js API with a Dockerfile and a Compose file for a Synology.
+The server is in [`photokit-backup-proxy`](photokit-backup-proxy). Pushes to `main` publish a free public image, `ghcr.io/tinusnl/ios-photokit-backup:latest`. [`docker-compose.yml`](photokit-backup-proxy/docker-compose.yml) pulls that image and mounts each person’s Photos folder.
 
 Copy `config.example.json` to `config.json`. Each API key points at one directory inside the container. The file is read at startup, so a restart picks up edits.
 
