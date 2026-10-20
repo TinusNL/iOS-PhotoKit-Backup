@@ -1,0 +1,11 @@
+services:
+  proxy:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.json:/config/config.json:ro
+      # Each API key directory in config.json is a path inside the container.
+      # Bind it to that person's Photos folder on the NAS.
+      - /volume1/photo/tinus:/data/tinus
+    restart: unless-stopped

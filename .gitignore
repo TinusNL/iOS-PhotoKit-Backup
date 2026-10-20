@@ -1,0 +1,5 @@
+.DS_Store
+node_modules/
+dist/
+xcuserdata/
+photokit-backup-proxy/config.json

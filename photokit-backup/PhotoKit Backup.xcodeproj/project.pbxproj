@@ -6,6 +6,10 @@
 	objectVersion = 110;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		10D4F1E030879C8C00A47C10 /* BackgroundUploadExtension.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 10D4F1D930879C8C00A47C10 /* BackgroundUploadExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		108BCB43308793060086A095 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -21,17 +25,57 @@
 			remoteGlobalIDString = 108BCB34308793040086A095;
 			remoteInfo = "PhotoKit Backup";
 		};
+		10D4F1DE30879C8C00A47C10 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 108BCB2D308793040086A095 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 10D4F1D830879C8C00A47C10;
+			remoteInfo = BackgroundUploadExtension;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		10D4F1E130879C8C00A47C10 /* Embed ExtensionKit Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			dstPath = "$(EXTENSIONS_FOLDER_PATH)";
+			dstSubfolder = Product;
+			files = (
+				10D4F1E030879C8C00A47C10 /* BackgroundUploadExtension.appex in Embed ExtensionKit Extensions */,
+			);
+			name = "Embed ExtensionKit Extensions";
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		108BCB35308793040086A095 /* PhotoKit Backup.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "PhotoKit Backup.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		108BCB42308793060086A095 /* PhotoKit BackupTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "PhotoKit BackupTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		108BCB4C308793060086A095 /* PhotoKit BackupUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "PhotoKit BackupUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		10D4F1D930879C8C00A47C10 /* BackgroundUploadExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = BackgroundUploadExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		10D4F1E430879C8C00A47C10 /* Exceptions for "BackgroundUploadExtension" folder in "BackgroundUploadExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 10D4F1D830879C8C00A47C10 /* BackgroundUploadExtension */;
+		};
+		C8F1A2B330879C8C00A47C12 /* Exceptions for "PhotoKit Backup" folder in "PhotoKit Backup" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 108BCB34308793040086A095 /* PhotoKit Backup */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		108BCB37308793040086A095 /* PhotoKit Backup */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C8F1A2B330879C8C00A47C12 /* Exceptions for "PhotoKit Backup" folder in "PhotoKit Backup" target */,
+			);
 			path = "PhotoKit Backup";
 			sourceTree = "<group>";
 		};
@@ -43,6 +87,19 @@
 		108BCB4F308793060086A095 /* PhotoKit BackupUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "PhotoKit BackupUITests";
+			sourceTree = "<group>";
+		};
+		10D4F1DA30879C8C00A47C10 /* BackgroundUploadExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				10D4F1E430879C8C00A47C10 /* Exceptions for "BackgroundUploadExtension" folder in "BackgroundUploadExtension" target */,
+			);
+			path = BackgroundUploadExtension;
+			sourceTree = "<group>";
+		};
+		B7E4A1C230879C8C00A47C11 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -63,6 +120,11 @@
 			files = (
 			);
 		};
+		10D4F1D630879C8C00A47C10 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -72,6 +134,8 @@
 				108BCB37308793040086A095 /* PhotoKit Backup */,
 				108BCB45308793060086A095 /* PhotoKit BackupTests */,
 				108BCB4F308793060086A095 /* PhotoKit BackupUITests */,
+				10D4F1DA30879C8C00A47C10 /* BackgroundUploadExtension */,
+				B7E4A1C230879C8C00A47C11 /* Shared */,
 				108BCB36308793040086A095 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -82,6 +146,7 @@
 				108BCB35308793040086A095 /* PhotoKit Backup.app */,
 				108BCB42308793060086A095 /* PhotoKit BackupTests.xctest */,
 				108BCB4C308793060086A095 /* PhotoKit BackupUITests.xctest */,
+				10D4F1D930879C8C00A47C10 /* BackgroundUploadExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -96,11 +161,16 @@
 				108BCB31308793040086A095 /* Sources */,
 				108BCB32308793040086A095 /* Frameworks */,
 				108BCB33308793040086A095 /* Resources */,
+				10D4F1E130879C8C00A47C10 /* Embed ExtensionKit Extensions */,
 			);
 			buildRules = (
 			);
+			dependencies = (
+				10D4F1DF30879C8C00A47C10 /* PBXTargetDependency */,
+			);
 			fileSystemSynchronizedGroups = (
 				108BCB37308793040086A095 /* PhotoKit Backup */,
+				B7E4A1C230879C8C00A47C11 /* Shared */,
 			);
 			name = "PhotoKit Backup";
 			productName = "PhotoKit Backup";
@@ -149,6 +219,25 @@
 			productReference = 108BCB4C308793060086A095 /* PhotoKit BackupUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		10D4F1D830879C8C00A47C10 /* BackgroundUploadExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 10D4F1E530879C8C00A47C10 /* Build configuration list for PBXNativeTarget "BackgroundUploadExtension" */;
+			buildPhases = (
+				10D4F1D530879C8C00A47C10 /* Sources */,
+				10D4F1D630879C8C00A47C10 /* Frameworks */,
+				10D4F1D730879C8C00A47C10 /* Resources */,
+			);
+			buildRules = (
+			);
+			fileSystemSynchronizedGroups = (
+				10D4F1DA30879C8C00A47C10 /* BackgroundUploadExtension */,
+				B7E4A1C230879C8C00A47C11 /* Shared */,
+			);
+			name = BackgroundUploadExtension;
+			productName = BackgroundUploadExtension;
+			productReference = 10D4F1D930879C8C00A47C10 /* BackgroundUploadExtension.appex */;
+			productType = "com.apple.product-type.extensionkit-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -170,6 +259,9 @@
 						CreatedOnToolsVersion = 27.1;
 						TestTargetID = 108BCB34308793040086A095;
 					};
+					10D4F1D830879C8C00A47C10 = {
+						CreatedOnToolsVersion = 27.1;
+					};
 				};
 			};
 			buildConfigurationList = 108BCB30308793040086A095 /* Build configuration list for PBXProject "PhotoKit Backup" */;
@@ -189,6 +281,7 @@
 				108BCB34308793040086A095 /* PhotoKit Backup */,
 				108BCB41308793060086A095 /* PhotoKit BackupTests */,
 				108BCB4B308793060086A095 /* PhotoKit BackupUITests */,
+				10D4F1D830879C8C00A47C10 /* BackgroundUploadExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -205,6 +298,11 @@
 			);
 		};
 		108BCB4A308793060086A095 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		10D4F1D730879C8C00A47C10 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
 			);
@@ -227,6 +325,11 @@
 			files = (
 			);
 		};
+		10D4F1D530879C8C00A47C10 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -239,6 +342,11 @@
 			isa = PBXTargetDependency;
 			target = 108BCB34308793040086A095 /* PhotoKit Backup */;
 			targetProxy = 108BCB4D308793060086A095 /* PBXContainerItemProxy */;
+		};
+		10D4F1DF30879C8C00A47C10 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 10D4F1D830879C8C00A47C10 /* BackgroundUploadExtension */;
+			targetProxy = 10D4F1DE30879C8C00A47C10 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -369,11 +477,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "PhotoKit Backup/PhotoKit Backup.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Y9W3FFT4T7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "PhotoKit Backup/Info.plist";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "PhotoKit Backup uploads original photos and videos from your library to your server.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -386,6 +497,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.tinus.PhotoKit-Backup";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -401,11 +513,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "PhotoKit Backup/PhotoKit Backup.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Y9W3FFT4T7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "PhotoKit Backup/Info.plist";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "PhotoKit Backup uploads original photos and videos from your library to your server.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -418,6 +533,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.tinus.PhotoKit-Backup";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -512,6 +628,88 @@
 			};
 			name = Release;
 		};
+		10D4F1E230879C8C00A47C10 /* Debug configuration for PBXNativeTarget "BackgroundUploadExtension" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BackgroundUploadExtension/BackgroundUploadExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Y9W3FFT4T7;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BackgroundUploadExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BackgroundUploadExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.tinus.PhotoKit-Backup.BackgroundUploadExtension";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 27.0;
+			};
+			name = Debug;
+		};
+		10D4F1E330879C8C00A47C10 /* Release configuration for PBXNativeTarget "BackgroundUploadExtension" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BackgroundUploadExtension/BackgroundUploadExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Y9W3FFT4T7;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BackgroundUploadExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BackgroundUploadExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.tinus.PhotoKit-Backup.BackgroundUploadExtension";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 27.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -544,6 +742,14 @@
 			buildConfigurations = (
 				108BCB5B308793060086A095 /* Debug configuration for PBXNativeTarget "PhotoKit BackupUITests" */,
 				108BCB5C308793060086A095 /* Release configuration for PBXNativeTarget "PhotoKit BackupUITests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		10D4F1E530879C8C00A47C10 /* Build configuration list for PBXNativeTarget "BackgroundUploadExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				10D4F1E230879C8C00A47C10 /* Debug configuration for PBXNativeTarget "BackgroundUploadExtension" */,
+				10D4F1E330879C8C00A47C10 /* Release configuration for PBXNativeTarget "BackgroundUploadExtension" */,
 			);
 			defaultConfigurationName = Release;
 		};

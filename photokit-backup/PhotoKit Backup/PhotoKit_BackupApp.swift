@@ -2,7 +2,7 @@
 //  PhotoKit_BackupApp.swift
 //  PhotoKit Backup
 //
-//  Created by Martijn de Roode on 20/10/2026.
+//  Created by Tinus de Roode on 20/10/2026.
 //
 
 import SwiftUI
