@@ -55,7 +55,7 @@ CONFIG_PATH=./config.json node dist/index.js
 `GET /health` needs no key. Everything else uses `Authorization: Bearer <apiKey>`.
 
 - `GET /api/session` returns the key’s name.
-- `GET /api/uploads?limit=100` lists files already in the folder, newest first.
+- `GET /api/uploads?limit=40&offset=0` lists files in `YYYY/MM` folders, newest first. Other folders are ignored. `total` is the number of those files.
 - `POST /api/uploads/lookup` with `{ "files": [{ "assetId", "resourceType", "filename", "relativePath" }] }` returns the ones whose filename is already on disk.
 - `OPTIONS /api/upload` returns `501` so PhotoKit sends the file in one request.
 - `POST /api/upload` reads the raw file. Headers: `X-Asset-Id`, `X-Resource-Type` (`photo`, `pairedVideo`, or `video`), `X-Filename` (percent-encoded), `X-Created-At`, and `Content-Type`. An existing filename returns `200` and is not replaced. A new file returns `201`.

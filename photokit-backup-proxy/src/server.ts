@@ -6,7 +6,7 @@ import { extname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { ApiKeyConfig, AppConfig } from "./config.ts";
 import { authenticate } from "./auth.ts";
-import { catalogFiles, findExisting, invalidateCatalog, rememberFile, resolveInside, type StoredFile } from "./catalog.ts";
+import { catalogFiles, findExisting, invalidateCatalog, recentFiles, rememberFile, resolveInside, type StoredFile } from "./catalog.ts";
 import { decodeFilename, isResourceType, relativeStoragePath } from "./filenames.ts";
 
 const LOOKUP_LIMIT = 5_000;
@@ -72,9 +72,13 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse,
 
   if (request.method === "GET" && path === "/api/uploads") {
     const limit = clampLimit(url.searchParams.get("limit"));
-    const snapshot = await catalogFiles(key.directory);
+    const offset = clampOffset(url.searchParams.get("offset"));
+    const files = await recentFiles(key.directory);
     sendJson(response, 200, {
-      items: snapshot.files.slice(0, limit).map(describeFile),
+      items: files.slice(offset, offset + limit).map(describeFile),
+      total: files.length,
+      offset,
+      limit,
     });
     return;
   }
@@ -266,11 +270,19 @@ function requiredText(value: unknown, field: string): string {
 }
 
 function clampLimit(value: string | null): number {
-  const parsed = Number(value ?? "100");
+  const parsed = Number(value ?? "40");
   if (!Number.isInteger(parsed) || parsed < 1) {
-    return 100;
+    return 40;
   }
-  return Math.min(parsed, 500);
+  return Math.min(parsed, 100);
+}
+
+function clampOffset(value: string | null): number {
+  const parsed = Number(value ?? "0");
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return 0;
+  }
+  return parsed;
 }
 
 function header(request: IncomingMessage, name: string): string | undefined {

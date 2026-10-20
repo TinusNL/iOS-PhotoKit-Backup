@@ -22,11 +22,12 @@ struct BackupClient: Sendable {
     return try JSONDecoder().decode(SessionName.self, from: data).name
   }
 
-  func recent(limit: Int = 100) async throws -> [RemoteFile] {
+  func recent(limit: Int = 40, offset: Int = 0) async throws -> RecentPage {
     let (data, response) = try await session.data(
-      for: request(path: "api/uploads", query: "limit=\(limit)"))
+      for: request(path: "api/uploads", query: "limit=\(limit)&offset=\(offset)"))
     try validate(response, data: data)
-    return try JSONDecoder().decode(UploadList.self, from: data).items
+    let decoded = try JSONDecoder().decode(UploadList.self, from: data)
+    return RecentPage(items: decoded.items, total: decoded.total ?? offset + decoded.items.count)
   }
 
   func lookup(_ files: [ExpectedUpload]) async throws -> [String: Set<String>] {
@@ -112,8 +113,14 @@ private struct SessionName: Decodable {
   var name: String
 }
 
+struct RecentPage: Sendable {
+  var items: [RemoteFile]
+  var total: Int
+}
+
 private struct UploadList: Decodable {
   var items: [RemoteFile]
+  var total: Int?
 }
 
 private struct LookupBody: Encodable {

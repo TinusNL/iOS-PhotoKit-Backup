@@ -9,6 +9,8 @@ final class BackupModel {
   var apiKeyField = ""
   var accountName = ""
   var recent: [RemoteFile] = []
+  var recentTotal = 0
+  var isLoadingMoreRecent = false
   var pending: [ExpectedUpload] = []
   var uploadLivePhotoMovies = true
   var isSignedIn = false
@@ -44,6 +46,7 @@ final class BackupModel {
         contentType: "image/jpeg", createdAt: "2019-03-01T00:00:00.000Z",
         uploadedAt: "2026-10-19T18:12:00.000Z"),
     ]
+    model.recentTotal = model.recent.count
     model.pending = [
       ExpectedUpload(
         assetId: "preview-live", resourceType: "photo", filename: "IMG_3102.HEIC",
@@ -118,11 +121,39 @@ final class BackupModel {
     do {
       let client = BackupClient(baseURL: settings.serverURL, apiKey: settings.apiKey)
       accountName = try await client.sessionName()
-      recent = try await client.recent()
+      let generation = recentGeneration + 1
+      recentGeneration = generation
+      let page = try await client.recent(limit: Self.recentPageSize)
+      guard generation == recentGeneration else { return }
+      recent = page.items
+      recentTotal = page.total
+      await Task.yield()
       let expected = LibraryScanner.expected(uploadLivePhotoMovies: settings.uploadLivePhotoMovies)
       let stored = try await client.lookup(expected)
       pending = PendingUploads.missing(expected: expected, uploaded: stored)
       statusMessage = nil
+    } catch {
+      statusMessage = error.localizedDescription
+    }
+  }
+
+  func loadMoreRecent() async {
+    guard !isPreview, !isWorking, !isLoadingMoreRecent, recent.count < recentTotal else { return }
+    guard let settings = BackupSettings.load() else { return }
+    isLoadingMoreRecent = true
+    let generation = recentGeneration
+    let offset = recent.count
+    defer { isLoadingMoreRecent = false }
+    do {
+      let page = try await BackupClient(baseURL: settings.serverURL, apiKey: settings.apiKey)
+        .recent(
+          limit: Self.recentPageSize,
+          offset: offset
+        )
+      guard generation == recentGeneration else { return }
+      recentTotal = page.total
+      let known = Set(recent.map(\.id))
+      recent.append(contentsOf: page.items.filter { !known.contains($0.id) })
     } catch {
       statusMessage = error.localizedDescription
     }
@@ -139,6 +170,7 @@ final class BackupModel {
       isSignedIn = false
       accountName = ""
       recent = []
+      recentTotal = 0
       pending = []
       return
     }
@@ -149,11 +181,16 @@ final class BackupModel {
     BackupSettings.signOut()
     apiKeyField = ""
     accountName = ""
+    recentGeneration += 1
     recent = []
+    recentTotal = 0
     pending = []
     isSignedIn = false
     statusMessage = nil
   }
+
+  private static let recentPageSize = 40
+  private var recentGeneration = 0
 
   private func enableUploadsIfAuthorized() async {
     let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)

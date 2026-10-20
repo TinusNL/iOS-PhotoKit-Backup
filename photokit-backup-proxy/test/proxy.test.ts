@@ -125,13 +125,28 @@ test("existing files are kept and new files land in YYYY/MM", async () => {
       undefined,
     );
 
+    await mkdir(join(directory, "2026/10/@eaDir/IMG_3000.HEIC"), { recursive: true });
+    await mkdir(join(directory, "2026/99"), { recursive: true });
+    await writeFile(join(directory, "2026/10/@eaDir/IMG_3000.HEIC/SYNOPHOTO_THUMB_M.jpg"), "thumb");
+    await writeFile(join(directory, "2026/10/@eaDir/IMG_3000.HEIC/SYNOINDEX_MEDIA_INFO"), "index");
+    await writeFile(join(directory, "2026/99/NOPE.jpg"), "nope");
+    await writeFile(join(directory, "loose.jpg"), "loose");
+    invalidateCatalog(directory);
+
     const recent = (await (await fetch(`${baseUrl}/api/uploads?limit=10`, {
       headers: { Authorization: "Bearer test-key" },
-    })).json()) as { items: Array<{ filename: string }> };
+    })).json()) as { items: Array<{ filename: string }>; total: number };
+    assert.equal(recent.total, 2);
     assert.deepEqual(
       recent.items.map((item) => item.filename).sort(),
-      ["IMG_2456.HEIC", "IMG_2456.MOV", "IMG_3000.HEIC"],
+      ["IMG_2456.HEIC", "IMG_3000.HEIC"],
     );
+
+    const page = (await (await fetch(`${baseUrl}/api/uploads?limit=1&offset=1`, {
+      headers: { Authorization: "Bearer test-key" },
+    })).json()) as { items: Array<{ filename: string }>; total: number };
+    assert.equal(page.total, 2);
+    assert.deepEqual(page.items.map((item) => item.filename), ["IMG_2456.HEIC"]);
 
     const options = await fetch(`${baseUrl}/api/upload`, { method: "OPTIONS" });
     assert.equal(options.status, 501);

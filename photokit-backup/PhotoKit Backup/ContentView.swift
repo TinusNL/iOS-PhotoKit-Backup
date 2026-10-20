@@ -118,6 +118,15 @@ private struct BackupHomeView: View {
                   .foregroundStyle(.secondary)
               }
             }
+            if model.recent.count < model.recentTotal {
+              if model.isLoadingMoreRecent {
+                ProgressView()
+              } else {
+                Button("Load more") {
+                  Task { await model.loadMoreRecent() }
+                }
+              }
+            }
           }
         } header: {
           Text("Recently uploaded")
