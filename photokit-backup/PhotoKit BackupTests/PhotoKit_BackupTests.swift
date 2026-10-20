@@ -94,6 +94,22 @@ final class PhotoKit_BackupTests: XCTestCase {
     XCTAssertEqual(half.map(\.title), ["IMG_2456.HEIC"])
   }
 
+  func testUploadSummaryNamesOneFileAndCountsTheRest() {
+    XCTAssertEqual(
+      UploadSummary.body(total: 1, filename: "IMG_2456.HEIC"), "Backed up IMG_2456.HEIC.")
+    XCTAssertEqual(UploadSummary.body(total: 1, filename: nil), "Backed up 1 file.")
+    XCTAssertEqual(UploadSummary.body(total: 12, filename: "IMG_2456.HEIC"), "Backed up 12 files.")
+  }
+
+  func testUploadFailureNoticeNamesOneFileAndCountsTheRest() {
+    XCTAssertEqual(
+      UploadFailureNotice.body(total: 1, filename: "IMG_2456.HEIC"),
+      "Couldn't back up IMG_2456.HEIC.")
+    XCTAssertEqual(UploadFailureNotice.body(total: 1, filename: nil), "Couldn't back up 1 file.")
+    XCTAssertEqual(
+      UploadFailureNotice.body(total: 3, filename: "IMG_2456.HEIC"), "Couldn't back up 3 files.")
+  }
+
   func testServerAddressAcceptsHostPortAndStripsATrailingSlash() {
     XCTAssertEqual(
       ServerAddress.normalize("192.168.1.20:8080")?.absoluteString, "http://192.168.1.20:8080")

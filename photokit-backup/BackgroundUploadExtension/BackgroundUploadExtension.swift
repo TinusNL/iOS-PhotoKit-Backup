@@ -2,6 +2,7 @@ import ExtensionFoundation
 import Foundation
 import Photos
 import Synchronization
+import UserNotifications
 
 /// BackgroundUploadURLBase in Info.plist is only Apple's network check. Upload jobs use the server address saved in the app.
 @main
@@ -28,7 +29,13 @@ final class BackgroundUploadExtension: PHBackgroundResourceUploadJobExtension, @
       }
       try await retryFailedJobs()
       try await acknowledgeFinishedJobs()
+      await deliverUploadFailures()
       let more = try await enqueueMissingUploads(settings: settings)
+      if !more {
+        await deliverUploadSummary(force: true)
+        UploadSummary.reset()
+        UploadFailureNotice.reset()
+      }
       return more ? .processing : .completed
     } catch is LimitExceeded {
       return .processing
@@ -44,11 +51,16 @@ final class BackgroundUploadExtension: PHBackgroundResourceUploadJobExtension, @
   private func retryFailedJobs() async throws {
     let jobs = PHAssetResourceUploadJob.fetchJobs(action: .retry, options: nil)
     let library = PHPhotoLibrary.shared()
+    var failed: [String] = []
     for index in 0..<jobs.count {
-      if cancelled.load(ordering: .acquiring) { return }
+      if cancelled.load(ordering: .acquiring) {
+        UploadFailureNotice.record(failed)
+        return
+      }
       let job = jobs.object(at: index)
       if isPermanent(job.error) {
         recordFailure(for: job)
+        failed.append(finishedFilename(for: job))
         try await acknowledge(job, library: library)
         continue
       }
@@ -56,21 +68,65 @@ final class BackgroundUploadExtension: PHBackgroundResourceUploadJobExtension, @
         PHAssetResourceUploadJobChangeRequest(for: job)?.retry(destination: nil)
       }
     }
+    UploadFailureNotice.record(failed)
   }
 
   private func acknowledgeFinishedJobs() async throws {
     let jobs = PHAssetResourceUploadJob.fetchJobs(action: .acknowledge, options: nil)
     let library = PHPhotoLibrary.shared()
+    var finished: [String] = []
+    var failed: [String] = []
     for index in 0..<jobs.count {
-      if cancelled.load(ordering: .acquiring) { return }
+      if cancelled.load(ordering: .acquiring) {
+        UploadSummary.record(finished)
+        UploadFailureNotice.record(failed)
+        await deliverUploadSummary(force: false)
+        return
+      }
       let job = jobs.object(at: index)
       if job.state == .succeeded {
         clearFailure(for: job)
-      } else if job.state == .failed, isPermanent(job.error) {
-        recordFailure(for: job)
+        finished.append(finishedFilename(for: job))
+      } else if job.state == .failed {
+        if isPermanent(job.error) {
+          recordFailure(for: job)
+        }
+        failed.append(finishedFilename(for: job))
       }
       try await acknowledge(job, library: library)
     }
+    UploadSummary.record(finished)
+    UploadFailureNotice.record(failed)
+    await deliverUploadSummary(force: false)
+  }
+
+  private func deliverUploadSummary(force: Bool) async {
+    guard let message = UploadSummary.messageIfDue(force: force) else { return }
+    await deliver(message, identifier: "photokit-backup-summary")
+  }
+
+  private func deliverUploadFailures() async {
+    guard let message = UploadFailureNotice.message() else { return }
+    await deliver(message, identifier: "photokit-backup-failure")
+  }
+
+  private func deliver(_ message: String, identifier: String) async {
+    let content = UNMutableNotificationContent()
+    content.title = "PhotoKit Backup"
+    content.body = message
+    let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+    let center = UNUserNotificationCenter.current()
+    center.removeDeliveredNotifications(withIdentifiers: [identifier])
+    try? await center.add(request)
+  }
+
+  private func finishedFilename(for job: PHAssetResourceUploadJob) -> String {
+    guard let resource = PHAssetResource.assetResource(forUploadJob: job),
+      let filename = resource.filename, !filename.isEmpty
+    else {
+      return ""
+    }
+    return filename
   }
 
   private func enqueueMissingUploads(settings: BackupSettings) async throws -> Bool {

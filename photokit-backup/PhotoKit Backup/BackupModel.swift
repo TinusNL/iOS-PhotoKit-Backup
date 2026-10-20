@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import Photos
+import UserNotifications
 
 @MainActor
 @Observable
@@ -18,6 +19,9 @@ final class BackupModel {
   var hasMorePending: Bool { pendingIndex < pendingAssetCount }
   var pendingIsComplete: Bool { didCheckPending && !hasMorePending }
   var uploadLivePhotoMovies = true
+  var notificationsEnabled = BackupSettings.notificationsEnabled
+  var notificationAuthorization: UNAuthorizationStatus = .notDetermined
+  var didCompleteOnboarding = BackupSettings.didCompleteOnboarding
   var isSignedIn = false
   var isWorking = false
   var statusMessage: String?
@@ -37,6 +41,9 @@ final class BackupModel {
     model.apiKeyField = "preview-key"
     model.photoStatus = photoStatus
     model.uploadLivePhotoMovies = uploadLivePhotoMovies
+    model.notificationsEnabled = true
+    model.notificationAuthorization = .authorized
+    model.didCompleteOnboarding = true
     let uploadedLive = [
       ExpectedUpload(
         assetId: "preview-uploaded", resourceType: "photo", filename: "IMG_2456.HEIC",
@@ -86,6 +93,8 @@ final class BackupModel {
     guard !isPreview else { return }
     photoStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     uploadLivePhotoMovies = BackupSettings.uploadLivePhotoMovies
+    notificationsEnabled = BackupSettings.notificationsEnabled
+    didCompleteOnboarding = BackupSettings.didCompleteOnboarding
     if let settings = BackupSettings.load() {
       serverField = settings.serverURL.absoluteString
       apiKeyField = settings.apiKey
@@ -203,6 +212,60 @@ final class BackupModel {
     uploadLivePhotoMovies = enabled
     guard !isPreview else { return }
     BackupSettings.setUploadLivePhotoMovies(enabled)
+  }
+
+  func refreshNotificationAuthorization() async {
+    guard !isPreview else { return }
+    let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    notificationAuthorization = status
+    if status == .denied {
+      notificationsEnabled = false
+      BackupSettings.setNotificationsEnabled(false)
+    }
+  }
+
+  func setNotificationsEnabled(_ enabled: Bool) async {
+    guard !isPreview else {
+      notificationsEnabled = enabled
+      return
+    }
+    if !enabled {
+      notificationsEnabled = false
+      BackupSettings.setNotificationsEnabled(false)
+      return
+    }
+    let center = UNUserNotificationCenter.current()
+    var status = await center.notificationSettings().authorizationStatus
+    if status == .notDetermined {
+      _ = try? await center.requestAuthorization(options: [.alert])
+      status = await center.notificationSettings().authorizationStatus
+    }
+    notificationAuthorization = status
+    let allowed = status == .authorized || status == .provisional || status == .ephemeral
+    notificationsEnabled = allowed
+    BackupSettings.setNotificationsEnabled(allowed)
+  }
+
+  func completeOnboarding() async {
+    guard !isPreview else {
+      didCompleteOnboarding = true
+      return
+    }
+    isWorking = true
+    defer { isWorking = false }
+    photoStatus = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+    let center = UNUserNotificationCenter.current()
+    _ = try? await center.requestAuthorization(options: [.alert])
+    let status = await center.notificationSettings().authorizationStatus
+    notificationAuthorization = status
+    let allowed = status == .authorized || status == .provisional || status == .ephemeral
+    notificationsEnabled = allowed
+    BackupSettings.setNotificationsEnabled(allowed)
+    BackupSettings.setDidCompleteOnboarding(true)
+    didCompleteOnboarding = true
+    if isSignedIn {
+      await enableUploadsIfAuthorized()
+    }
   }
 
   func signOut() {
