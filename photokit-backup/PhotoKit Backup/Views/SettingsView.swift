@@ -57,7 +57,7 @@ struct SettingsView: View {
           Button(role: .destructive) {
             model.signOut()
           } label: {
-            Text("Sign out")
+            Text("Disconnect")
               .frame(maxWidth: .infinity)
           }
         }
