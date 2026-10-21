@@ -46,8 +46,9 @@ struct FastBackupCard: View {
         }
       } else {
         HStack(alignment: .firstTextBaseline) {
-          Text("\(Int((min(1, max(0, fraction)) * 100).rounded()))%")
+          Text(min(1, max(0, fraction)), format: .percent.precision(.fractionLength(1)))
             .font(.largeTitle.bold())
+            .monospacedDigit()
             .foregroundStyle(.tint)
           Spacer(minLength: 8)
           if totalBytes > 0 {
