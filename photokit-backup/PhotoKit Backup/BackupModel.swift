@@ -21,6 +21,7 @@ final class BackupModel {
   var hasMorePending: Bool { pendingIndex < pendingAssetCount }
   var pendingIsComplete: Bool { didCheckPending && !hasMorePending }
   var uploadLivePhotoMovies = true
+  var fastBackupConcurrency = BackupSettings.fastBackupConcurrency
   var notificationsEnabled = BackupSettings.notificationsEnabled
   var notificationAuthorization: UNAuthorizationStatus = .notDetermined
   var didCompleteOnboarding = BackupSettings.didCompleteOnboarding
@@ -30,6 +31,39 @@ final class BackupModel {
   var statusMessage: String?
   var photoStatus: PHAuthorizationStatus = .notDetermined
   var isPreview = false
+  var fastBackupPhase: FastBackupPhase = .idle
+  var fastBackupCompleted = 0
+  var fastBackupTotal = 0
+  var fastBackupSent: Int64 = 0
+  var fastBackupTotalBytes: Int64 = 0
+  var fastItemProgress: [String: FastBackupItemProgress] = [:]
+
+  var showsFastBackup: Bool {
+    photoStatus == .authorized && (fastBackupPhase != .idle || !pending.isEmpty)
+  }
+
+  var fastBackupFraction: Double {
+    if fastBytesCoverAll, fastBackupTotalBytes > 0 {
+      return min(1, Double(fastBackupSent) / Double(fastBackupTotalBytes))
+    }
+    guard fastBackupTotal > 0 else { return 0 }
+    let partial = fastItemProgress.values.reduce(0.0) { $0 + $1.fraction }
+    return min(1, (Double(fastBackupCompleted) + partial) / Double(fastBackupTotal))
+  }
+
+  /// Byte total for the progress label. Stays hidden until every file in the backup is included.
+  var fastBackupShownTotalBytes: Int64 {
+    fastBytesCoverAll ? fastBackupTotalBytes : 0
+  }
+
+  var fastBackupSubtitle: String {
+    let items = fastBackupPhase == .running ? fastQueue : pending
+    let source = items.isEmpty ? pending : items
+    if fastBackupPhase == .running {
+      return FastBackupCopy.uploadingLine(for: source)
+    }
+    return FastBackupCopy.waitingLine(for: source)
+  }
 
   static func preview(
     accountName: String = "tinus",
@@ -98,10 +132,28 @@ final class BackupModel {
     return model
   }
 
+  static func previewInProgress() -> BackupModel {
+    let model = preview()
+    model.fastBackupPhase = .running
+    model.fastQueue = model.pending
+    model.fastBackupCompleted = 0
+    model.fastBackupTotal = model.pending.count
+    model.fastBackupTotalBytes = model.pending.reduce(0) { $0 + Int64($1.bytes ?? 0) }
+    for (index, item) in model.pending.enumerated() {
+      let total = Int64(item.bytes ?? 1)
+      let sent = index == 0 ? total * 3 / 5 : total / 5
+      model.fastItemProgress[item.id] = FastBackupItemProgress(sent: sent, total: total)
+    }
+    model.fastBackupSent = model.fastItemProgress.values.reduce(0) { $0 + $1.sent }
+    model.fastBytesCoverAll = true
+    return model
+  }
+
   func restore() {
     guard !isPreview else { return }
     photoStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     uploadLivePhotoMovies = BackupSettings.uploadLivePhotoMovies
+    fastBackupConcurrency = BackupSettings.fastBackupConcurrency
     notificationsEnabled = BackupSettings.notificationsEnabled
     didCompleteOnboarding = BackupSettings.didCompleteOnboarding
     if let settings = BackupSettings.load() {
@@ -273,10 +325,35 @@ final class BackupModel {
     }
   }
 
+  func notifyFastBackupNeedsAppOpen() {
+    guard !isPreview, fastBackupPhase == .running, notificationsEnabled else { return }
+    let content = UNMutableNotificationContent()
+    content.title = "PhotoKit Backup"
+    content.body = "Fast backup paused. Keep the app open to continue uploading."
+    let request = UNNotificationRequest(
+      identifier: Self.fastBackupStayOpenNotice, content: content, trigger: nil)
+    let center = UNUserNotificationCenter.current()
+    center.removeDeliveredNotifications(withIdentifiers: [Self.fastBackupStayOpenNotice])
+    center.add(request) { _ in }
+  }
+
+  func clearFastBackupNeedsAppOpenNotice() {
+    guard !isPreview else { return }
+    UNUserNotificationCenter.current().removeDeliveredNotifications(
+      withIdentifiers: [Self.fastBackupStayOpenNotice])
+  }
+
   func setUploadLivePhotoMovies(_ enabled: Bool) {
     uploadLivePhotoMovies = enabled
     guard !isPreview else { return }
     BackupSettings.setUploadLivePhotoMovies(enabled)
+  }
+
+  func setFastBackupConcurrency(_ count: Int) {
+    let clamped = min(max(count, 1), BackupSettings.fastBackupConcurrencyLimit)
+    fastBackupConcurrency = clamped
+    guard !isPreview else { return }
+    BackupSettings.setFastBackupConcurrency(clamped)
   }
 
   func refreshNotificationAuthorization() async {
@@ -347,6 +424,7 @@ final class BackupModel {
     libraryTask?.cancel()
     libraryTask = nil
     libraryGeneration += 1
+    discardFastBackup()
     BackupSettings.signOut()
     apiKeyField = ""
     accountName = ""
@@ -370,10 +448,26 @@ final class BackupModel {
   static let browsePageSize = 50
   static let homePendingPreview = 5
   static let homeRecentPreview = 5
+  private static let fastBackupStayOpenNotice = "photokit-backup-stay-open"
   private static let pendingPageSize = 5
   private static let recentPageSize = 10
   private var libraryTask: Task<Void, Never>?
   private var libraryGeneration = 0
+  private var fastBackupTask: Task<Void, Never>?
+  private var fastBytesCoverAll = false
+  private var fastQueuedBytes: [String: Int64] = [:]
+  private var fastQueue: [ListedUpload] = []
+  private var fastInFlight: Set<String> = []
+  private var fastStarted: Set<String> = []
+  private var fastOutstanding = 0
+  private var fastFinishedKeys: Set<String> = []
+  private var fastFinishedRowIDs: Set<String> = []
+  private var fastRetiredIDs: Set<String> = []
+  private var fastAwaitingConfirm: [ListedUpload] = []
+  private var fastCommittedBytes: Int64 = 0
+  private var fastResourceSent: [String: Int64] = [:]
+  private var fastResourceTotal: [String: Int64] = [:]
+  private var fastResourceOwner: [String: String] = [:]
   private var recentFiles: [RemoteFile] = []
   private var expectedUploads: [ExpectedUpload] = []
   private var recentGeneration = 0
@@ -440,7 +534,16 @@ final class BackupModel {
         let stored = try await client.lookup(slice)
         guard generation == pendingGeneration else { return false }
         expectedUploads.append(contentsOf: slice)
-        pending.append(contentsOf: UploadGroups.pending(expected: slice, uploaded: stored))
+        var storedWithLocal = stored
+        for key in fastFinishedKeys {
+          let parts = key.split(separator: "|", maxSplits: 1).map(String.init)
+          guard parts.count == 2 else { continue }
+          storedWithLocal[parts[0], default: []].insert(parts[1])
+        }
+        let rows = UploadGroups.pending(expected: slice, uploaded: storedWithLocal).filter {
+          !fastFinishedRowIDs.contains($0.id) && !fastRetiredIDs.contains($0.id)
+        }
+        pending.append(contentsOf: rows)
         if pendingShown == 0, !pending.isEmpty {
           pendingShown = min(Self.pendingPageSize, pending.count)
         }
@@ -491,5 +594,313 @@ final class BackupModel {
     } else {
       statusMessage = "Full photo library access is required before background upload can start."
     }
+  }
+
+  func startFastBackup() {
+    guard !isPreview, photoStatus == .authorized, fastBackupPhase != .running else { return }
+    guard !pending.isEmpty else { return }
+    if fastBackupPhase == .idle {
+      fastQueue = pending
+      fastFinishedKeys = []
+      fastFinishedRowIDs = []
+      fastRetiredIDs = []
+      fastAwaitingConfirm = []
+      fastInFlight = []
+      fastStarted = []
+      fastOutstanding = 0
+      fastItemProgress = [:]
+      fastResourceSent = [:]
+      fastResourceTotal = [:]
+      fastResourceOwner = [:]
+      fastCommittedBytes = 0
+      fastBackupSent = 0
+      fastBackupCompleted = 0
+      fastBackupTotal = pending.count
+      fastBackupTotalBytes = pending.reduce(0) { $0 + Int64($1.bytes ?? 0) }
+      fastBytesCoverAll = pending.allSatisfy { ($0.bytes ?? 0) > 0 }
+      if fastBytesCoverAll {
+        for item in pending {
+          fastQueuedBytes[item.id] = Int64(item.bytes ?? 0)
+        }
+      }
+    }
+    fastBackupPhase = .running
+    statusMessage = nil
+    fastBackupTask = Task { await runFastBackup() }
+  }
+
+  func stopFastBackup() {
+    guard fastBackupPhase == .running else { return }
+    fastBackupTask?.cancel()
+    restoreUnconfirmedRows()
+    finishFastBackup()
+  }
+
+  private func runFastBackup() async {
+    await withTaskGroup(of: Void.self) { group in
+      var launched = 0
+      while fastBackupPhase == .running, !Task.isCancelled {
+        let wanted = max(1, fastBackupConcurrency)
+        while launched < wanted {
+          launched += 1
+          group.addTask { @MainActor in
+            await self.fastBackupWorker()
+          }
+        }
+        if !isLoadingPending, fastOutstanding == 0, fastQueue.isEmpty {
+          finishFastBackup()
+          break
+        }
+        try? await Task.sleep(for: .milliseconds(200))
+      }
+      group.cancelAll()
+    }
+    fastInFlight.removeAll()
+  }
+
+  /// Keeps uploading the next file as soon as one has sent its bytes, instead of waiting for the whole group.
+  private func fastBackupWorker() async {
+    while fastBackupPhase == .running, !Task.isCancelled {
+      while fastInFlight.count >= max(1, fastBackupConcurrency) {
+        if fastBackupPhase != .running || Task.isCancelled { return }
+        try? await Task.sleep(for: .milliseconds(100))
+      }
+      guard let item = claimNextFastItem() else {
+        try? await Task.sleep(for: .milliseconds(200))
+        continue
+      }
+      await uploadUntilSlotFrees(item)
+    }
+  }
+
+  private func claimNextFastItem() -> ListedUpload? {
+    adoptNewPending()
+    guard fastBackupPhase == .running else { return nil }
+    guard let item = fastQueue.first(where: { !fastStarted.contains($0.id) }) else { return nil }
+    fastStarted.insert(item.id)
+    fastInFlight.insert(item.id)
+    fastOutstanding += 1
+    return item
+  }
+
+  private func uploadUntilSlotFrees(_ item: ListedUpload) async {
+    defer { fastInFlight.remove(item.id) }
+    guard let settings = BackupSettings.load() else {
+      fastStarted.remove(item.id)
+      fastOutstanding = max(0, fastOutstanding - 1)
+      return
+    }
+    let assetId = item.assetId
+    let itemID = item.id
+    let skipKeys = fastFinishedKeys
+    let relay = FastProgressRelay()
+    let gate = SlotGate()
+    let work = Task.detached(priority: .utility) { () throws -> FastTransferResult in
+      defer { gate.open() }
+      return try await FastUploader.transfer(
+        assetId: assetId,
+        listedID: itemID,
+        settings: settings,
+        skipKeys: skipKeys,
+        onProgress: { event in
+          if event.total > 0, event.sent >= event.total {
+            gate.open()
+          }
+          relay.submit(event) { latest in
+            Task { @MainActor in
+              self.noteFastResourceProgress(
+                itemID: itemID, key: latest.resourceKey, sent: latest.sent, total: latest.total)
+            }
+          }
+        },
+        onBodiesSent: { event in
+          Task { @MainActor in
+            self.noteFastResourceProgress(
+              itemID: itemID, key: event.resourceKey, sent: event.sent, total: event.total)
+            self.retireSentItem(item)
+          }
+        }
+      )
+    }
+    await withTaskCancellationHandler {
+      await gate.waitUntilOpen()
+    } onCancel: {
+      work.cancel()
+      gate.open()
+    }
+    Task { @MainActor in
+      await self.finishUploadTask(item, work)
+    }
+  }
+
+  private func finishUploadTask(_ item: ListedUpload, _ work: Task<FastTransferResult, Error>) async
+  {
+    defer {
+      fastStarted.remove(item.id)
+      fastOutstanding = max(0, fastOutstanding - 1)
+    }
+    do {
+      let result = try await withTaskCancellationHandler {
+        try await work.value
+      } onCancel: {
+        work.cancel()
+      }
+      guard fastBackupPhase == .running, !Task.isCancelled else { return }
+      if result.uploaded.isEmpty {
+        dropQueued(item)
+        return
+      }
+      if result.itemBytes > 0 {
+        fastQueuedBytes[item.id] = result.itemBytes
+      }
+      for upload in result.uploaded {
+        fastFinishedKeys.insert(upload.key)
+        rememberUploaded(upload, bytes: Int64(upload.bytes ?? 0))
+      }
+      if fastAwaitingConfirm.contains(where: { $0.id == item.id }) {
+        fastAwaitingConfirm.removeAll { $0.id == item.id }
+        fastRetiredIDs.remove(item.id)
+        fastFinishedRowIDs.insert(item.id)
+      } else {
+        finishQueued(item)
+      }
+    } catch is CancellationError {
+      return
+    } catch let error as URLError where error.code == .cancelled {
+      return
+    } catch {
+      guard fastBackupPhase == .running else { return }
+      serverReachable = false
+      statusMessage = error.localizedDescription
+      stopFastBackup()
+    }
+  }
+
+  private func noteFastResourceProgress(itemID: String, key: String, sent: Int64, total: Int64) {
+    guard fastBackupPhase == .running else { return }
+    guard !fastRetiredIDs.contains(itemID), !fastFinishedRowIDs.contains(itemID) else { return }
+    let knownTotal = fastResourceTotal[key] ?? 0
+    fastResourceOwner[key] = itemID
+    fastResourceSent[key] = sent
+    fastResourceTotal[key] = max(knownTotal, total)
+    let keys = fastResourceOwner.filter { $0.value == itemID }.map(\.key)
+    let itemSent = keys.reduce(Int64(0)) { $0 + (fastResourceSent[$1] ?? 0) }
+    let itemTotal = keys.reduce(Int64(0)) { $0 + (fastResourceTotal[$1] ?? 0) }
+    fastItemProgress[itemID] = FastBackupItemProgress(sent: itemSent, total: itemTotal)
+    fastBackupSent = fastCommittedBytes + fastResourceSent.values.reduce(0, +)
+  }
+
+  private func adoptNewPending() {
+    guard fastBackupPhase == .running else { return }
+    let known = Set(fastQueue.map(\.id)).union(fastFinishedRowIDs).union(fastRetiredIDs)
+    for item in pending where !known.contains(item.id) {
+      fastQueue.append(item)
+      fastBackupTotal += 1
+      if let bytes = item.bytes, bytes > 0 {
+        fastQueuedBytes[item.id] = Int64(bytes)
+      }
+    }
+    refreshFastByteTotalIfReady()
+  }
+
+  /// Drops a row once its bytes are sent. The server response is recorded separately.
+  private func retireSentItem(_ item: ListedUpload) {
+    guard fastBackupPhase == .running else { return }
+    guard !fastFinishedRowIDs.contains(item.id), !fastRetiredIDs.contains(item.id) else { return }
+    accountFinished(item)
+    fastRetiredIDs.insert(item.id)
+    fastAwaitingConfirm.append(item)
+    dropQueued(item)
+  }
+
+  private func finishQueued(_ item: ListedUpload) {
+    accountFinished(item)
+    fastFinishedRowIDs.insert(item.id)
+    dropQueued(item)
+  }
+
+  private func accountFinished(_ item: ListedUpload) {
+    let keys = fastResourceOwner.filter { $0.value == item.id }.map(\.key)
+    let itemTotal = keys.reduce(Int64(0)) { $0 + (fastResourceTotal[$1] ?? 0) }
+    fastCommittedBytes += itemTotal
+    for key in keys {
+      fastResourceSent[key] = nil
+      fastResourceTotal[key] = nil
+      fastResourceOwner[key] = nil
+    }
+    fastBackupSent = fastCommittedBytes + fastResourceSent.values.reduce(0, +)
+    fastItemProgress[item.id] = nil
+    fastBackupCompleted += 1
+    if fastQueuedBytes[item.id] == nil {
+      fastQueuedBytes[item.id] = itemTotal > 0 ? itemTotal : Int64(item.bytes ?? 0)
+    }
+    refreshFastByteTotalIfReady()
+  }
+
+  private func restoreUnconfirmedRows() {
+    let waiting = fastAwaitingConfirm
+    fastAwaitingConfirm = []
+    fastRetiredIDs = []
+    let missing = waiting.filter { item in !pending.contains { $0.id == item.id } }
+    guard !missing.isEmpty else { return }
+    pending.insert(contentsOf: missing, at: 0)
+  }
+
+  private func dropQueued(_ item: ListedUpload) {
+    fastQueue.removeAll { $0.id == item.id }
+    pending.removeAll { $0.id == item.id }
+  }
+
+  private func rememberUploaded(_ item: ExpectedUpload, bytes: Int64) {
+    let file = RemoteFile(
+      filename: item.filename,
+      relativePath: item.relativePath,
+      bytes: max(Int(bytes), item.bytes ?? 0),
+      contentType: UploadNaming.contentType(for: item.filename),
+      createdAt: item.isoTimestamp,
+      uploadedAt: ISO8601DateFormatter().string(from: Date())
+    )
+    let isNew = !recentFiles.contains { $0.relativePath == file.relativePath }
+    recentFiles.removeAll { $0.relativePath == file.relativePath }
+    recentFiles.insert(file, at: 0)
+    if isNew {
+      recentTotal += 1
+    }
+    recentRows = UploadGroups.recent(files: recentFiles, library: expectedUploads)
+  }
+
+  private func refreshFastByteTotalIfReady() {
+    guard fastBytesCoverAll else { return }
+    fastBackupTotalBytes = fastQueuedBytes.values.reduce(0, +)
+  }
+
+  private func finishFastBackup() {
+    fastBackupPhase = .idle
+    fastBackupTask = nil
+    fastBytesCoverAll = false
+    fastQueuedBytes = [:]
+    fastQueue = []
+    fastInFlight = []
+    fastStarted = []
+    fastOutstanding = 0
+    fastRetiredIDs = []
+    fastAwaitingConfirm = []
+    fastItemProgress = [:]
+    fastResourceSent = [:]
+    fastResourceTotal = [:]
+    fastResourceOwner = [:]
+    fastCommittedBytes = 0
+    fastBackupSent = 0
+    fastBackupTotal = 0
+    fastBackupCompleted = 0
+    fastBackupTotalBytes = 0
+  }
+
+  private func discardFastBackup() {
+    stopFastBackup()
+    fastFinishedKeys = []
+    fastFinishedRowIDs = []
+    fastRetiredIDs = []
+    fastAwaitingConfirm = []
   }
 }

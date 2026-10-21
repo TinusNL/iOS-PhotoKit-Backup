@@ -60,7 +60,9 @@ final class BackgroundUploadExtension: PHBackgroundResourceUploadJobExtension, @
       let job = jobs.object(at: index)
       if isPermanent(job.error) {
         recordFailure(for: job)
-        failed.append(finishedFilename(for: job))
+        if countsAsFile(job) {
+          failed.append(finishedFilename(for: job))
+        }
         try await acknowledge(job, library: library)
         continue
       }
@@ -86,12 +88,16 @@ final class BackgroundUploadExtension: PHBackgroundResourceUploadJobExtension, @
       let job = jobs.object(at: index)
       if job.state == .succeeded {
         clearFailure(for: job)
-        finished.append(finishedFilename(for: job))
+        if countsAsFile(job) {
+          finished.append(finishedFilename(for: job))
+        }
       } else if job.state == .failed {
         if isPermanent(job.error) {
           recordFailure(for: job)
         }
-        failed.append(finishedFilename(for: job))
+        if countsAsFile(job) {
+          failed.append(finishedFilename(for: job))
+        }
       }
       try await acknowledge(job, library: library)
     }
@@ -118,6 +124,12 @@ final class BackgroundUploadExtension: PHBackgroundResourceUploadJobExtension, @
     let center = UNUserNotificationCenter.current()
     center.removeDeliveredNotifications(withIdentifiers: [identifier])
     try? await center.add(request)
+  }
+
+  /// A Live Photo uploads its still and its movie. The still is the file the notification counts.
+  private func countsAsFile(_ job: PHAssetResourceUploadJob) -> Bool {
+    guard let resource = PHAssetResource.assetResource(forUploadJob: job) else { return true }
+    return resource.type != .pairedVideo
   }
 
   private func finishedFilename(for job: PHAssetResourceUploadJob) -> String {

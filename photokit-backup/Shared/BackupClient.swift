@@ -90,7 +90,7 @@ struct BackupClient: Sendable {
   }
 }
 
-enum UploadRequest {
+nonisolated enum UploadRequest {
   static func make(settings: BackupSettings, item: ExpectedUpload) -> URLRequest? {
     var components = URLComponents(url: settings.serverURL, resolvingAgainstBaseURL: false)
     let basePath = components?.path == "/" ? "" : (components?.path ?? "")

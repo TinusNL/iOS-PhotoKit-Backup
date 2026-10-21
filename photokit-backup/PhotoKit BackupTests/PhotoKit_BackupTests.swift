@@ -127,4 +127,24 @@ final class PhotoKit_BackupTests: XCTestCase {
     XCTAssertNil(ServerAddress.normalize("ftp://example.com"))
     XCTAssertNil(ServerAddress.normalize("   "))
   }
+
+  func testFastBackupCopyDescribesPhotosAndVideos() {
+    let video = ListedUpload(
+      id: "video", assetId: "video", title: "IMG_3104.MP4", subtitle: "2026/10/IMG_3104.MP4",
+      bytes: 10)
+    let movie = ListedUpload(
+      id: "movie", assetId: "movie", title: "IMG_3102.MOV", subtitle: "2026/10/IMG_3102.MOV",
+      bytes: 20)
+    let photo = ListedUpload(
+      id: "photo", assetId: "photo", title: "IMG_2450.JPG", subtitle: "2019/03/IMG_2450.JPG",
+      bytes: 5)
+
+    XCTAssertEqual(FastBackupCopy.waitingLine(for: [video, movie]), "2 videos waiting to upload")
+    XCTAssertEqual(FastBackupCopy.uploadingLine(for: [video, movie]), "Uploading 2 videos")
+    XCTAssertEqual(
+      FastBackupCopy.waitingLine(for: [photo, video]), "1 photo and 1 video waiting to upload")
+    XCTAssertEqual(FastBackupCopy.completedLine(done: 0, total: 2), "0 of 2 items completed")
+    XCTAssertEqual(FastBackupCopy.uploadingCount(2), "2 uploading")
+    XCTAssertEqual(FastBackupCopy.percent(180, 400), 45)
+  }
 }

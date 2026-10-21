@@ -72,7 +72,7 @@ struct FilesView: View {
           emptyState
         } else {
           ForEach(rows) { item in
-            UploadRow(item: item)
+            UploadRow(item: item, transfer: model.fastItemProgress[item.id])
               .onAppear {
                 guard item.id == rows.last?.id, hasMore else { return }
                 Task { await model.loadNextFilePage(selection) }

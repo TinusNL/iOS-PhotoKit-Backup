@@ -46,7 +46,7 @@ nonisolated enum UploadNaming {
   }
 }
 
-struct ExpectedUpload: Hashable, Identifiable, Sendable {
+nonisolated struct ExpectedUpload: Hashable, Identifiable, Sendable {
   var assetId: String
   var resourceType: String
   var filename: String
@@ -68,7 +68,7 @@ enum PendingUploads {
   }
 }
 
-struct ListedUpload: Identifiable, Hashable, Sendable {
+nonisolated struct ListedUpload: Identifiable, Hashable, Sendable {
   var id: String
   var assetId: String
   var title: String

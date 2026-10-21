@@ -636,6 +636,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Y9W3FFT4T7;
 				ENABLE_APP_SANDBOX = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BackgroundUploadExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BackgroundUploadExtension;
@@ -677,6 +678,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Y9W3FFT4T7;
 				ENABLE_APP_SANDBOX = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BackgroundUploadExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BackgroundUploadExtension;

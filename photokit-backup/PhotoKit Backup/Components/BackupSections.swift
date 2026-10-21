@@ -32,9 +32,10 @@ struct CountedSectionHeader: View {
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(.primary)
       if let count {
-        RisingCount(value: count, text: ItemCount.phrase)
+        Text(ItemCount.phrase(count))
           .font(.subheadline)
           .foregroundStyle(.secondary)
+          .contentTransition(.numericText())
       }
       Spacer(minLength: 8)
       if let browse {
@@ -98,6 +99,7 @@ struct PendingUploadsSection: View {
   var previewLimit: Int
   var isLoading: Bool
   var isComplete: Bool
+  var transfers: [String: FastBackupItemProgress] = [:]
 
   var body: some View {
     Section {
@@ -108,7 +110,7 @@ struct PendingUploadsSection: View {
           .foregroundStyle(.secondary)
       } else {
         ForEach(items.prefix(previewLimit)) { item in
-          UploadRow(item: item)
+          UploadRow(item: item, transfer: transfers[item.id])
         }
         if isLoading {
           LoadingLabel()

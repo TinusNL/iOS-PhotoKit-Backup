@@ -170,7 +170,7 @@ enum LibraryScanner {
   }
 }
 
-struct LibraryUpload {
+nonisolated struct LibraryUpload {
   var expected: ExpectedUpload
   var resource: PHAssetResource
 }

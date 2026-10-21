@@ -161,32 +161,43 @@ async function handleUpload(request: IncomingMessage, response: ServerResponse, 
     throw new HttpError(400, "Invalid filename");
   }
 
-  await withDirectoryLock(key.directory, async () => {
-    const snapshot = await catalogFiles(key.directory, 0);
-    const existing = findExisting(snapshot, filename, relativePath);
-    if (existing && (await nonEmpty(existing.fullPath))) {
-      sendJson(
-        response,
-        200,
-        { relativePath: existing.relativePath, created: false },
-        { "X-Relative-Path": existing.relativePath, "X-Asset-Id": assetId },
-      );
-      drain(request);
-      return;
-    }
+  const snapshot = await catalogFiles(key.directory);
+  const existing = findExisting(snapshot, filename, relativePath);
+  if (existing && (await nonEmpty(existing.fullPath))) {
+    sendJson(
+      response,
+      200,
+      { relativePath: existing.relativePath, created: false },
+      { "X-Relative-Path": existing.relativePath, "X-Asset-Id": assetId },
+    );
+    drain(request);
+    return;
+  }
 
-    const incoming = join(key.directory, ".incoming");
-    await mkdir(incoming, { recursive: true });
-    await mkdir(join(destination, ".."), { recursive: true });
-    const temporary = join(incoming, randomUUID());
-    try {
-      await pipeline(request, createWriteStream(temporary));
-      const info = await stat(temporary);
-      if (info.size <= 0) {
-        throw new HttpError(400, "Upload body is empty");
+  const incoming = join(key.directory, ".incoming");
+  await mkdir(incoming, { recursive: true });
+  const temporary = join(incoming, randomUUID());
+  let stored = false;
+  try {
+    await pipeline(request, createWriteStream(temporary));
+    const info = await stat(temporary);
+    if (info.size <= 0) {
+      throw new HttpError(400, "Upload body is empty");
+    }
+    await withDirectoryLock(key.directory, async () => {
+      if (await nonEmpty(destination)) {
+        sendJson(
+          response,
+          200,
+          { relativePath, created: false },
+          { "X-Relative-Path": relativePath, "X-Asset-Id": assetId },
+        );
+        return;
       }
+      await mkdir(join(destination, ".."), { recursive: true });
       await rename(temporary, destination);
-      const stored: StoredFile = {
+      stored = true;
+      const file: StoredFile = {
         filename,
         relativePath,
         fullPath: destination,
@@ -194,7 +205,7 @@ async function handleUpload(request: IncomingMessage, response: ServerResponse, 
         modifiedAt: new Date(),
       };
       invalidateCatalog(key.directory);
-      rememberFile(key.directory, stored);
+      rememberFile(key.directory, file);
       const contentType = mediaType(header(request, "content-type"), filename);
       sendJson(
         response,
@@ -202,11 +213,14 @@ async function handleUpload(request: IncomingMessage, response: ServerResponse, 
         { relativePath, created: true, bytes: info.size, contentType },
         { "X-Relative-Path": relativePath, "X-Asset-Id": assetId },
       );
-    } catch (error) {
-      await rm(temporary, { force: true });
-      throw error;
-    }
-  });
+    });
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
+  if (!stored) {
+    await rm(temporary, { force: true });
+  }
 }
 
 function describeFile(file: StoredFile) {

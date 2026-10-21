@@ -54,6 +54,20 @@ struct BackupSettings: Equatable, Sendable {
     AppGroup.defaults.set(enabled, forKey: livePhotoKey)
   }
 
+  static let fastBackupConcurrencyKey = "fastBackupConcurrency"
+  static let fastBackupConcurrencyLimit = 8
+
+  static var fastBackupConcurrency: Int {
+    let stored = AppGroup.defaults.integer(forKey: fastBackupConcurrencyKey)
+    guard stored > 0 else { return 4 }
+    return min(max(stored, 1), fastBackupConcurrencyLimit)
+  }
+
+  static func setFastBackupConcurrency(_ count: Int) {
+    let clamped = min(max(count, 1), fastBackupConcurrencyLimit)
+    AppGroup.defaults.set(clamped, forKey: fastBackupConcurrencyKey)
+  }
+
   static let notificationsKey = "notificationsEnabled"
   static let onboardingKey = "didCompleteOnboarding"
 

@@ -18,6 +18,16 @@ struct SettingsView: View {
               set: { model.setUploadLivePhotoMovies($0) }
             )
           )
+          PreferenceStepper(
+            title: "Concurrent uploads",
+            systemImage: "square.stack.3d.up",
+            detail: concurrencyDetail,
+            value: Binding(
+              get: { model.fastBackupConcurrency },
+              set: { model.setFastBackupConcurrency($0) }
+            ),
+            range: 1...BackupSettings.fastBackupConcurrencyLimit
+          )
         } header: {
           Text("Backup preferences")
         }
@@ -66,6 +76,12 @@ struct SettingsView: View {
       .task { await model.refreshNotificationAuthorization() }
     }
   }
+
+  private var concurrencyDetail: String {
+    let count = model.fastBackupConcurrency
+    let files = count == 1 ? "1 file" : "\(count) files"
+    return "Fast Backup uploads \(files) at the same time."
+  }
 }
 
 private struct PreferenceToggle: View {
@@ -77,6 +93,29 @@ private struct PreferenceToggle: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
       Toggle(isOn: $isOn) {
+        Label {
+          Text(title)
+        } icon: {
+          IconBadge(systemImage: systemImage)
+        }
+      }
+      Text(detail)
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+    }
+  }
+}
+
+private struct PreferenceStepper: View {
+  var title: String
+  var systemImage: String
+  var detail: String
+  @Binding var value: Int
+  var range: ClosedRange<Int>
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Stepper(value: $value, in: range) {
         Label {
           Text(title)
         } icon: {

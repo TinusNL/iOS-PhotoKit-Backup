@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
+  @Environment(\.scenePhase) private var scenePhase
   @State private var model: BackupModel
 
   init() {
@@ -26,6 +27,16 @@ struct ContentView: View {
       }
     }
     .onAppear { model.restore() }
+    .onChange(of: scenePhase) { _, phase in
+      switch phase {
+      case .background:
+        model.notifyFastBackupNeedsAppOpen()
+      case .active:
+        model.clearFastBackupNeedsAppOpenNotice()
+      default:
+        break
+      }
+    }
   }
 }
 

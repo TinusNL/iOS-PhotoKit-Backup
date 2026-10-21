@@ -42,11 +42,30 @@ struct BackupHomeView: View {
         StatusMessageSection(message: statusMessage)
       }
 
+      if model.showsFastBackup {
+        Section {
+          FastBackupCard(
+            phase: model.fastBackupPhase,
+            subtitle: model.fastBackupSubtitle,
+            fraction: model.fastBackupFraction,
+            sentBytes: model.fastBackupSent,
+            totalBytes: model.fastBackupShownTotalBytes,
+            completed: model.fastBackupCompleted,
+            total: model.fastBackupTotal,
+            start: { model.startFastBackup() },
+            stop: { model.stopFastBackup() },
+            isScanning: !model.pendingIsComplete
+          )
+          .listRowBackground(Color.accentColor.opacity(0.08))
+        }
+      }
+
       PendingUploadsSection(
         items: model.pending,
         previewLimit: BackupModel.homePendingPreview,
         isLoading: model.isLoadingPending,
-        isComplete: model.pendingIsComplete
+        isComplete: model.pendingIsComplete,
+        transfers: model.fastItemProgress
       )
 
       RecentUploadsSection(
@@ -72,4 +91,8 @@ struct BackupHomeView: View {
 
 #Preview("Needs photo access") {
   BackupHomeView(model: .preview(photoStatus: .notDetermined))
+}
+
+#Preview("Backup in progress") {
+  BackupHomeView(model: .previewInProgress())
 }

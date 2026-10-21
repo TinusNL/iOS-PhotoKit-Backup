@@ -4,10 +4,11 @@ import SwiftUI
 
 struct UploadRow: View {
   var item: ListedUpload
+  var transfer: FastBackupItemProgress?
   @State private var loadedBytes: Int?
 
   var body: some View {
-    HStack(spacing: 12) {
+    HStack(alignment: transfer == nil ? .center : .top, spacing: 12) {
       AssetThumbnail(assetId: item.assetId)
       VStack(alignment: .leading, spacing: 2) {
         HStack(spacing: 4) {
@@ -18,22 +19,56 @@ struct UploadRow: View {
               .foregroundStyle(.secondary)
               .accessibilityLabel("Live Photo")
           }
+          if transfer != nil {
+            Spacer(minLength: 8)
+            sizeLabel
+          }
         }
         Text(item.subtitle)
           .font(.caption)
           .foregroundStyle(.secondary)
+        if let transfer {
+          HStack(spacing: 8) {
+            ProgressView(value: transfer.fraction)
+              .tint(.accentColor)
+              .frame(maxWidth: .infinity)
+            Text("\(transfer.percent)%")
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(.tint)
+          }
+          .padding(.top, 4)
+        }
       }
-      Spacer(minLength: 8)
-      if let bytes = item.bytes ?? loadedBytes {
-        Text(ByteText.file(bytes))
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
+      if transfer == nil {
+        Spacer(minLength: 8)
+        sizeLabel
       }
     }
     .task(id: item.assetId) {
-      guard item.bytes == nil else { return }
+      guard item.bytes == nil, loadedBytes == nil else { return }
       loadedBytes = await FileSizeLoader.bytes(assetId: item.assetId, isLivePhoto: item.isLivePhoto)
     }
+  }
+
+  @ViewBuilder
+  private var sizeLabel: some View {
+    if let sizeText {
+      Text(sizeText)
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+  }
+
+  private var sizeText: String? {
+    if let transfer {
+      let total = transfer.total > 0 ? transfer.total : Int64(item.bytes ?? loadedBytes ?? 0)
+      guard total > 0 else { return nil }
+      return ByteText.fraction(sent: transfer.sent, total: total)
+    }
+    guard let bytes = item.bytes ?? loadedBytes else { return nil }
+    return ByteText.file(bytes)
   }
 }
 
@@ -90,11 +125,49 @@ enum PreviewUploads {
   List {
     UploadRow(item: PreviewUploads.livePhoto)
     UploadRow(item: PreviewUploads.video)
+    UploadRow(
+      item: PreviewUploads.video,
+      transfer: FastBackupItemProgress(sent: 2_700_000, total: 4_500_000)
+    )
   }
 }
 
 nonisolated enum ByteText {
   static func file(_ bytes: Int) -> String {
     ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+  }
+
+  static func fraction(sent: Int64, total: Int64) -> String {
+    guard total > 0 else { return file(Int(max(sent, 0))) }
+    let units = units(for: total)
+    let sentText = amount(max(sent, 0), units: units, includesUnit: false)
+    let totalText = amount(total, units: units, includesUnit: true)
+    return "\(sentText) of \(totalText)"
+  }
+
+  private static func amount(
+    _ bytes: Int64, units: ByteCountFormatter.Units, includesUnit: Bool
+  ) -> String {
+    let formatter = ByteCountFormatter()
+    formatter.countStyle = .file
+    formatter.allowedUnits = units
+    formatter.includesUnit = includesUnit
+    formatter.zeroPadsFractionDigits = false
+    return formatter.string(fromByteCount: bytes).trimmingCharacters(in: .whitespaces)
+  }
+
+  private static func units(for bytes: Int64) -> ByteCountFormatter.Units {
+    switch bytes {
+    case 1_000_000_000_000...:
+      .useTB
+    case 1_000_000_000...:
+      .useGB
+    case 1_000_000...:
+      .useMB
+    case 1_000...:
+      .useKB
+    default:
+      .useBytes
+    }
   }
 }
