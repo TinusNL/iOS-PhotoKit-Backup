@@ -4,7 +4,7 @@ import SwiftUI
 
 struct UploadRow: View {
   var item: ListedUpload
-  var transfer: FastBackupItemProgress?
+  var transfer: FastItemProgress?
   @State private var loadedBytes: Int?
 
   var body: some View {
@@ -127,7 +127,7 @@ enum PreviewUploads {
     UploadRow(item: PreviewUploads.video)
     UploadRow(
       item: PreviewUploads.video,
-      transfer: FastBackupItemProgress(sent: 2_700_000, total: 4_500_000)
+      transfer: FastItemProgress(sent: 2_700_000, total: 4_500_000)
     )
   }
 }

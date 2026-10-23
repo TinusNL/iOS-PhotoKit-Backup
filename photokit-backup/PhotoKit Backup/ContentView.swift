@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
   @Environment(\.scenePhase) private var scenePhase
@@ -26,16 +27,33 @@ struct ContentView: View {
         }
       }
     }
-    .onAppear { model.restore() }
+    .onAppear {
+      model.restore()
+      model.updateScreenAwake()
+    }
+    .onChange(of: model.fastBackupPhase) { _, _ in
+      model.updateScreenAwake()
+    }
     .onChange(of: scenePhase) { _, phase in
       switch phase {
-      case .background:
+      case .inactive, .background:
         model.notifyFastBackupNeedsAppOpen()
       case .active:
         model.clearFastBackupNeedsAppOpenNotice()
-      default:
+        model.updateScreenAwake()
+      @unknown default:
         break
       }
+    }
+    .onReceive(
+      NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)
+    ) { _ in
+      model.notifyFastBackupNeedsAppOpen()
+    }
+    .onReceive(
+      NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
+    ) { _ in
+      model.notifyFastBackupNeedsAppOpen()
     }
   }
 }

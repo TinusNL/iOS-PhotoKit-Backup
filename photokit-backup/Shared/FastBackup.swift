@@ -1,20 +1,6 @@
 import Foundation
 import Photos
 
-struct FastBackupItemProgress: Equatable, Sendable {
-  var sent: Int64
-  var total: Int64
-
-  var fraction: Double {
-    guard total > 0 else { return 0 }
-    return min(1, Double(sent) / Double(total))
-  }
-
-  var percent: Int {
-    FastBackupCopy.percent(sent, total)
-  }
-}
-
 struct FastProgressEvent: Sendable {
   var resourceKey: String
   var sent: Int64
@@ -35,6 +21,10 @@ nonisolated enum FastBackupCopy {
     "Uploading \(mediaPhrase(items))"
   }
 
+  static func uploadingLine(photos: Int, videos: Int) -> String {
+    "Uploading \(phrase(photos: photos, videos: videos))"
+  }
+
   static func completedLine(done: Int, total: Int) -> String {
     let noun = total == 1 ? "item" : "items"
     return "\(done) of \(total) \(noun) completed"
@@ -51,7 +41,10 @@ nonisolated enum FastBackupCopy {
 
   static func mediaPhrase(_ items: [ListedUpload]) -> String {
     let videos = items.filter(isVideo).count
-    let photos = items.count - videos
+    return phrase(photos: items.count - videos, videos: videos)
+  }
+
+  static func phrase(photos: Int, videos: Int) -> String {
     switch (photos, videos) {
     case (0, 0):
       return "0 items"
@@ -173,28 +166,18 @@ nonisolated enum FastUploader {
     onProgress: @escaping @Sendable (FastProgressEvent) -> Void,
     onBodySent: @escaping @Sendable (FastProgressEvent) -> Void
   ) async throws -> Int64 {
-    let bodySent = BodyOnce()
-    let delegate = UploadDelegate(key: key, fallbackTotal: total) { event in
-      onProgress(event)
-      if event.total > 0, event.sent >= event.total {
-        bodySent.fire { onBodySent(event) }
-      }
-    }
-    let configuration = URLSessionConfiguration.default
-    configuration.timeoutIntervalForRequest = 120
-    configuration.timeoutIntervalForResource = 60 * 60
-    configuration.waitsForConnectivity = true
-    let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
-    return try await withTaskCancellationHandler {
-      var request = request
-      request.timeoutInterval = 60 * 60
-      let (data, response) = try await session.upload(for: request, fromFile: file)
-      try validate(response, data: data)
-      session.finishTasksAndInvalidate()
-      return max(delegate.sent, total)
-    } onCancel: {
-      session.invalidateAndCancel()
-    }
+    var request = request
+    request.timeoutInterval = 60 * 60
+    let (data, response, sent) = try await FastUploadSession.shared.upload(
+      request: request,
+      file: file,
+      key: key,
+      total: total,
+      onProgress: onProgress,
+      onBodySent: onBodySent
+    )
+    try validate(response, data: data)
+    return max(sent, total)
   }
 
   private static func validate(_ response: URLResponse, data: Data) throws {
@@ -323,20 +306,59 @@ private nonisolated final class ResumeOnce: @unchecked Sendable {
   }
 }
 
-private nonisolated final class UploadDelegate: NSObject, URLSessionTaskDelegate,
+/// One session for the whole fast backup. A new session per file stalls the app after a few dozen uploads.
+private nonisolated final class FastUploadSession: @unchecked Sendable {
+  static let shared = FastUploadSession()
+
+  private let bridge = FastUploadBridge()
+  private let session: URLSession
+
+  private init() {
+    let configuration = URLSessionConfiguration.default
+    configuration.timeoutIntervalForRequest = 120
+    configuration.timeoutIntervalForResource = 60 * 60
+    configuration.waitsForConnectivity = true
+    configuration.httpMaximumConnectionsPerHost = BackupSettings.fastBackupConcurrencyLimit
+    let queue = OperationQueue()
+    queue.maxConcurrentOperationCount = 1
+    queue.qualityOfService = .utility
+    session = URLSession(configuration: configuration, delegate: bridge, delegateQueue: queue)
+  }
+
+  func upload(
+    request: URLRequest,
+    file: URL,
+    key: String,
+    total: Int64,
+    onProgress: @escaping @Sendable (FastProgressEvent) -> Void,
+    onBodySent: @escaping @Sendable (FastProgressEvent) -> Void
+  ) async throws -> (Data, HTTPURLResponse, Int64) {
+    let handler = UploadHandler(
+      key: key, fallbackTotal: total, onProgress: onProgress, onBodySent: onBodySent)
+    let task = session.uploadTask(with: request, fromFile: file)
+    return try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation {
+        (continuation: CheckedContinuation<(Data, HTTPURLResponse, Int64), Error>) in
+        handler.continuation = continuation
+        bridge.store(handler, for: task.taskIdentifier)
+        task.resume()
+      }
+    } onCancel: {
+      task.cancel()
+    }
+  }
+}
+
+private nonisolated final class FastUploadBridge: NSObject, URLSessionDataDelegate,
   @unchecked Sendable
 {
-  let key: String
-  let fallbackTotal: Int64
-  let onProgress: @Sendable (FastProgressEvent) -> Void
-  var sent: Int64 = 0
+  private let lock = NSLock()
+  private var handlers: [Int: UploadHandler] = [:]
 
-  init(
-    key: String, fallbackTotal: Int64, onProgress: @escaping @Sendable (FastProgressEvent) -> Void
-  ) {
-    self.key = key
-    self.fallbackTotal = fallbackTotal
-    self.onProgress = onProgress
+  func store(_ handler: UploadHandler, for identifier: Int) {
+    lock.lock()
+    handlers[identifier] = handler
+    lock.unlock()
   }
 
   func urlSession(
@@ -346,9 +368,119 @@ private nonisolated final class UploadDelegate: NSObject, URLSessionTaskDelegate
     totalBytesSent: Int64,
     totalBytesExpectedToSend: Int64
   ) {
-    sent = totalBytesSent
-    let total = totalBytesExpectedToSend > 0 ? totalBytesExpectedToSend : fallbackTotal
-    onProgress(FastProgressEvent(resourceKey: key, sent: totalBytesSent, total: total))
+    let handler = handler(for: task.taskIdentifier)
+    let total =
+      totalBytesExpectedToSend > 0 ? totalBytesExpectedToSend : handler?.fallbackTotal ?? 0
+    handler?.note(sent: totalBytesSent, total: total)
+  }
+
+  func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+    handler(for: dataTask.taskIdentifier)?.append(data)
+  }
+
+  func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    let handler = removeHandler(for: task.taskIdentifier)
+    guard let handler else { return }
+    if let error {
+      handler.fail(error)
+    } else if let response = task.response as? HTTPURLResponse {
+      handler.succeed(response)
+    } else {
+      handler.fail(FastUploadError.invalidResponse)
+    }
+  }
+
+  private func handler(for identifier: Int) -> UploadHandler? {
+    lock.lock()
+    defer { lock.unlock() }
+    return handlers[identifier]
+  }
+
+  private func removeHandler(for identifier: Int) -> UploadHandler? {
+    lock.lock()
+    defer { lock.unlock() }
+    return handlers.removeValue(forKey: identifier)
+  }
+}
+
+private nonisolated final class UploadHandler: @unchecked Sendable {
+  let key: String
+  let fallbackTotal: Int64
+  let onProgress: @Sendable (FastProgressEvent) -> Void
+  let onBodySent: @Sendable (FastProgressEvent) -> Void
+  var continuation: CheckedContinuation<(Data, HTTPURLResponse, Int64), Error>?
+
+  private let lock = NSLock()
+  private let bodySent = BodyOnce()
+  private var data = Data()
+  private var sent: Int64 = 0
+  private var resumed = false
+
+  init(
+    key: String,
+    fallbackTotal: Int64,
+    onProgress: @escaping @Sendable (FastProgressEvent) -> Void,
+    onBodySent: @escaping @Sendable (FastProgressEvent) -> Void
+  ) {
+    self.key = key
+    self.fallbackTotal = fallbackTotal
+    self.onProgress = onProgress
+    self.onBodySent = onBodySent
+  }
+
+  func note(sent: Int64, total: Int64) {
+    lock.lock()
+    self.sent = sent
+    lock.unlock()
+    let event = FastProgressEvent(resourceKey: key, sent: sent, total: total)
+    onProgress(event)
+    if total > 0, sent >= total {
+      bodySent.fire { self.onBodySent(event) }
+    }
+  }
+
+  func append(_ chunk: Data) {
+    lock.lock()
+    data.append(chunk)
+    lock.unlock()
+  }
+
+  func succeed(_ response: HTTPURLResponse) {
+    finish(.success((snapshotData(), response, snapshotSent())))
+  }
+
+  func fail(_ error: Error) {
+    finish(.failure(error))
+  }
+
+  private func snapshotData() -> Data {
+    lock.lock()
+    defer { lock.unlock() }
+    return data
+  }
+
+  private func snapshotSent() -> Int64 {
+    lock.lock()
+    defer { lock.unlock() }
+    return sent
+  }
+
+  private func finish(_ result: Result<(Data, HTTPURLResponse, Int64), Error>) {
+    lock.lock()
+    guard !resumed else {
+      lock.unlock()
+      return
+    }
+    resumed = true
+    let continuation = continuation
+    self.continuation = nil
+    lock.unlock()
+    switch result {
+    case .success(let value):
+      continuation?.resume(returning: value)
+    case .failure(let error):
+      continuation?.resume(throwing: error)
+    }
   }
 }
 

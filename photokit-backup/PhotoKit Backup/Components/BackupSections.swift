@@ -99,7 +99,7 @@ struct PendingUploadsSection: View {
   var previewLimit: Int
   var isLoading: Bool
   var isComplete: Bool
-  var transfers: [String: FastBackupItemProgress] = [:]
+  var transfers: [String: FastItemProgress] = [:]
 
   var body: some View {
     Section {

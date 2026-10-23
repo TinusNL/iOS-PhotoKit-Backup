@@ -100,6 +100,15 @@ final class PhotoKit_BackupTests: XCTestCase {
 
     let half = UploadGroups.recent(files: [still], library: [photo, movie])
     XCTAssertEqual(half.map(\.title), ["IMG_2456.HEIC"])
+
+    var inserted: [ListedUpload] = []
+    inserted = UploadGroups.insertRecent(file: still, assetId: "asset", into: inserted)
+    inserted = UploadGroups.insertRecent(file: paired, assetId: "asset", into: inserted)
+    inserted = UploadGroups.insertRecent(file: jpg, assetId: "other", into: inserted)
+    XCTAssertEqual(inserted.map(\.title), ["IMG_2450.JPG", "IMG_2456.HEIC"])
+    XCTAssertEqual(inserted[1].bytes, 30)
+    XCTAssertTrue(inserted[1].isLivePhoto)
+    XCTAssertFalse(inserted[0].isLivePhoto)
   }
 
   func testUploadSummaryNamesOneFileAndCountsTheRest() {

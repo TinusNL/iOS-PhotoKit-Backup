@@ -1,7 +1,29 @@
 import Foundation
 import Observation
 import Photos
-import UserNotifications
+import UIKit
+@preconcurrency import UserNotifications
+
+@MainActor
+@Observable
+final class FastItemProgress {
+  var sent: Int64
+  var total: Int64
+
+  init(sent: Int64, total: Int64) {
+    self.sent = sent
+    self.total = total
+  }
+
+  var fraction: Double {
+    guard total > 0 else { return 0 }
+    return min(1, Double(sent) / Double(total))
+  }
+
+  var percent: Int {
+    FastBackupCopy.percent(sent, total)
+  }
+}
 
 @MainActor
 @Observable
@@ -36,7 +58,7 @@ final class BackupModel {
   var fastBackupTotal = 0
   var fastBackupSent: Int64 = 0
   var fastBackupTotalBytes: Int64 = 0
-  var fastItemProgress: [String: FastBackupItemProgress] = [:]
+  var fastItemProgress: [String: FastItemProgress] = [:]
 
   var showsFastBackup: Bool {
     photoStatus == .authorized && (fastBackupPhase != .idle || !pending.isEmpty)
@@ -57,12 +79,11 @@ final class BackupModel {
   }
 
   var fastBackupSubtitle: String {
-    let items = fastBackupPhase == .running ? fastQueue : pending
-    let source = items.isEmpty ? pending : items
     if fastBackupPhase == .running {
-      return FastBackupCopy.uploadingLine(for: source)
+      return FastBackupCopy.uploadingLine(
+        photos: fastQueuedPhotoCount, videos: fastQueuedVideoCount)
     }
-    return FastBackupCopy.waitingLine(for: source)
+    return FastBackupCopy.waitingLine(for: pending)
   }
 
   static func preview(
@@ -136,13 +157,14 @@ final class BackupModel {
     let model = preview()
     model.fastBackupPhase = .running
     model.fastQueue = model.pending
+    model.recountQueuedMedia()
     model.fastBackupCompleted = 0
     model.fastBackupTotal = model.pending.count
     model.fastBackupTotalBytes = model.pending.reduce(0) { $0 + Int64($1.bytes ?? 0) }
     for (index, item) in model.pending.enumerated() {
       let total = Int64(item.bytes ?? 1)
       let sent = index == 0 ? total * 3 / 5 : total / 5
-      model.fastItemProgress[item.id] = FastBackupItemProgress(sent: sent, total: total)
+      model.fastItemProgress[item.id] = FastItemProgress(sent: sent, total: total)
     }
     model.fastBackupSent = model.fastItemProgress.values.reduce(0) { $0 + $1.sent }
     model.fastBytesCoverAll = true
@@ -214,6 +236,7 @@ final class BackupModel {
 
   func refresh() async {
     guard !isPreview else { return }
+    stopFastBackup()
     libraryTask?.cancel()
     libraryGeneration += 1
     let generation = libraryGeneration
@@ -327,20 +350,35 @@ final class BackupModel {
 
   func notifyFastBackupNeedsAppOpen() {
     guard !isPreview, fastBackupPhase == .running, notificationsEnabled else { return }
+    guard fastBackupStayOpenNoticeID == nil else { return }
+    let identifier = "\(Self.fastBackupStayOpenNotice)-\(UUID().uuidString)"
+    fastBackupStayOpenNoticeID = identifier
     let content = UNMutableNotificationContent()
     content.title = "PhotoKit Backup"
     content.body = "Fast backup paused. Keep the app open to continue uploading."
+    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
     let request = UNNotificationRequest(
-      identifier: Self.fastBackupStayOpenNotice, content: content, trigger: nil)
-    let center = UNUserNotificationCenter.current()
-    center.removeDeliveredNotifications(withIdentifiers: [Self.fastBackupStayOpenNotice])
-    center.add(request) { _ in }
+      identifier: identifier, content: content, trigger: trigger)
+    UNUserNotificationCenter.current().add(request) { _ in
+      Task { @MainActor in
+        guard self.fastBackupStayOpenNoticeID != identifier else { return }
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+      }
+    }
   }
 
   func clearFastBackupNeedsAppOpenNotice() {
     guard !isPreview else { return }
-    UNUserNotificationCenter.current().removeDeliveredNotifications(
-      withIdentifiers: [Self.fastBackupStayOpenNotice])
+    let center = UNUserNotificationCenter.current()
+    var identifiers = [Self.fastBackupStayOpenNotice]
+    if let identifier = fastBackupStayOpenNoticeID {
+      identifiers.append(identifier)
+    }
+    fastBackupStayOpenNoticeID = nil
+    center.removePendingNotificationRequests(withIdentifiers: identifiers)
+    center.removeDeliveredNotifications(withIdentifiers: identifiers)
   }
 
   func setUploadLivePhotoMovies(_ enabled: Bool) {
@@ -448,7 +486,8 @@ final class BackupModel {
   static let browsePageSize = 50
   static let homePendingPreview = 5
   static let homeRecentPreview = 5
-  private static let fastBackupStayOpenNotice = "photokit-backup-stay-open"
+  nonisolated static let fastBackupStayOpenNotice = "photokit-backup-stay-open"
+  private var fastBackupStayOpenNoticeID: String?
   private static let pendingPageSize = 5
   private static let recentPageSize = 10
   private var libraryTask: Task<Void, Never>?
@@ -457,6 +496,8 @@ final class BackupModel {
   private var fastBytesCoverAll = false
   private var fastQueuedBytes: [String: Int64] = [:]
   private var fastQueue: [ListedUpload] = []
+  private var fastQueuedPhotoCount = 0
+  private var fastQueuedVideoCount = 0
   private var fastInFlight: Set<String> = []
   private var fastStarted: Set<String> = []
   private var fastOutstanding = 0
@@ -601,6 +642,7 @@ final class BackupModel {
     guard !pending.isEmpty else { return }
     if fastBackupPhase == .idle {
       fastQueue = pending
+      recountQueuedMedia()
       fastFinishedKeys = []
       fastFinishedRowIDs = []
       fastRetiredIDs = []
@@ -626,7 +668,13 @@ final class BackupModel {
     }
     fastBackupPhase = .running
     statusMessage = nil
+    updateScreenAwake()
     fastBackupTask = Task { await runFastBackup() }
+  }
+
+  func updateScreenAwake() {
+    guard !isPreview else { return }
+    UIApplication.shared.isIdleTimerDisabled = fastBackupPhase == .running
   }
 
   func stopFastBackup() {
@@ -661,7 +709,8 @@ final class BackupModel {
   /// Keeps uploading the next file as soon as one has sent its bytes, instead of waiting for the whole group.
   private func fastBackupWorker() async {
     while fastBackupPhase == .running, !Task.isCancelled {
-      while fastInFlight.count >= max(1, fastBackupConcurrency) {
+      let sendingLimit = max(1, fastBackupConcurrency)
+      while fastInFlight.count >= sendingLimit || fastOutstanding >= sendingLimit {
         if fastBackupPhase != .running || Task.isCancelled { return }
         try? await Task.sleep(for: .milliseconds(100))
       }
@@ -703,9 +752,6 @@ final class BackupModel {
         settings: settings,
         skipKeys: skipKeys,
         onProgress: { event in
-          if event.total > 0, event.sent >= event.total {
-            gate.open()
-          }
           relay.submit(event) { latest in
             Task { @MainActor in
               self.noteFastResourceProgress(
@@ -714,6 +760,7 @@ final class BackupModel {
           }
         },
         onBodiesSent: { event in
+          gate.open()
           Task { @MainActor in
             self.noteFastResourceProgress(
               itemID: itemID, key: event.resourceKey, sent: event.sent, total: event.total)
@@ -786,7 +833,12 @@ final class BackupModel {
     let keys = fastResourceOwner.filter { $0.value == itemID }.map(\.key)
     let itemSent = keys.reduce(Int64(0)) { $0 + (fastResourceSent[$1] ?? 0) }
     let itemTotal = keys.reduce(Int64(0)) { $0 + (fastResourceTotal[$1] ?? 0) }
-    fastItemProgress[itemID] = FastBackupItemProgress(sent: itemSent, total: itemTotal)
+    if let progress = fastItemProgress[itemID] {
+      progress.sent = itemSent
+      progress.total = itemTotal
+    } else {
+      fastItemProgress[itemID] = FastItemProgress(sent: itemSent, total: itemTotal)
+    }
     fastBackupSent = fastCommittedBytes + fastResourceSent.values.reduce(0, +)
   }
 
@@ -795,6 +847,7 @@ final class BackupModel {
     let known = Set(fastQueue.map(\.id)).union(fastFinishedRowIDs).union(fastRetiredIDs)
     for item in pending where !known.contains(item.id) {
       fastQueue.append(item)
+      addQueuedMedia(item)
       fastBackupTotal += 1
       if let bytes = item.bytes, bytes > 0 {
         fastQueuedBytes[item.id] = Int64(bytes)
@@ -847,8 +900,37 @@ final class BackupModel {
   }
 
   private func dropQueued(_ item: ListedUpload) {
-    fastQueue.removeAll { $0.id == item.id }
-    pending.removeAll { $0.id == item.id }
+    if let index = fastQueue.firstIndex(where: { $0.id == item.id }) {
+      fastQueue.remove(at: index)
+      removeQueuedMedia(item)
+    }
+    if let index = pending.firstIndex(where: { $0.id == item.id }) {
+      pending.remove(at: index)
+    }
+  }
+
+  private func recountQueuedMedia() {
+    fastQueuedPhotoCount = 0
+    fastQueuedVideoCount = 0
+    for item in fastQueue {
+      addQueuedMedia(item)
+    }
+  }
+
+  private func addQueuedMedia(_ item: ListedUpload) {
+    if FastBackupCopy.isVideo(item) {
+      fastQueuedVideoCount += 1
+    } else {
+      fastQueuedPhotoCount += 1
+    }
+  }
+
+  private func removeQueuedMedia(_ item: ListedUpload) {
+    if FastBackupCopy.isVideo(item) {
+      fastQueuedVideoCount = max(0, fastQueuedVideoCount - 1)
+    } else {
+      fastQueuedPhotoCount = max(0, fastQueuedPhotoCount - 1)
+    }
   }
 
   private func rememberUploaded(_ item: ExpectedUpload, bytes: Int64) {
@@ -866,7 +948,7 @@ final class BackupModel {
     if isNew {
       recentTotal += 1
     }
-    recentRows = UploadGroups.recent(files: recentFiles, library: expectedUploads)
+    recentRows = UploadGroups.insertRecent(file: file, assetId: item.assetId, into: recentRows)
   }
 
   private func refreshFastByteTotalIfReady() {
@@ -880,6 +962,8 @@ final class BackupModel {
     fastBytesCoverAll = false
     fastQueuedBytes = [:]
     fastQueue = []
+    fastQueuedPhotoCount = 0
+    fastQueuedVideoCount = 0
     fastInFlight = []
     fastStarted = []
     fastOutstanding = 0
@@ -894,6 +978,7 @@ final class BackupModel {
     fastBackupTotal = 0
     fastBackupCompleted = 0
     fastBackupTotalBytes = 0
+    updateScreenAwake()
   }
 
   private func discardFastBackup() {

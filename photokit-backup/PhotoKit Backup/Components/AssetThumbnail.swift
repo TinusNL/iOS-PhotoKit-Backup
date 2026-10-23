@@ -36,7 +36,7 @@ private enum ThumbnailLoader {
 
   static func image(for assetId: String) async -> UIImage? {
     guard !assetId.isEmpty else { return nil }
-    if let cached = cache.images[assetId] {
+    if let cached = cache.image(for: assetId) {
       return cached
     }
     let assets = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil)
@@ -58,14 +58,33 @@ private enum ThumbnailLoader {
       }
     }
     if let image {
-      cache.images[assetId] = image
+      cache.store(image, for: assetId)
     }
     return image
   }
 }
 
 private final class ThumbnailCache: @unchecked Sendable {
-  var images: [String: UIImage] = [:]
+  private let lock = NSLock()
+  private var images: [String: UIImage] = [:]
+  private var order: [String] = []
+
+  func image(for assetId: String) -> UIImage? {
+    lock.lock()
+    defer { lock.unlock() }
+    return images[assetId]
+  }
+
+  func store(_ image: UIImage, for assetId: String) {
+    lock.lock()
+    defer { lock.unlock() }
+    images[assetId] = image
+    order.removeAll { $0 == assetId }
+    order.append(assetId)
+    while order.count > 80 {
+      images[order.removeFirst()] = nil
+    }
+  }
 }
 
 private final class ResumeOnce: @unchecked Sendable {

@@ -631,12 +631,12 @@
 		10D4F1E230879C8C00A47C10 /* Debug configuration for PBXNativeTarget "BackgroundUploadExtension" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = BackgroundUploadExtension/BackgroundUploadExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Y9W3FFT4T7;
 				ENABLE_APP_SANDBOX = YES;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BackgroundUploadExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BackgroundUploadExtension;
@@ -673,12 +673,12 @@
 		10D4F1E330879C8C00A47C10 /* Release configuration for PBXNativeTarget "BackgroundUploadExtension" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = BackgroundUploadExtension/BackgroundUploadExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Y9W3FFT4T7;
 				ENABLE_APP_SANDBOX = YES;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BackgroundUploadExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = BackgroundUploadExtension;

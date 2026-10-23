@@ -120,6 +120,57 @@ enum UploadGroups {
     }
   }
 
+  /// Adds one finished file to the recent list without scanning the rest of the library.
+  static func insertRecent(file: RemoteFile, assetId: String, into rows: [ListedUpload])
+    -> [ListedUpload]
+  {
+    var rows = rows
+    let stem = stemKey(folderAndName: file)
+    let ext = fileExtension(file.filename)
+    if let index = rows.firstIndex(where: { rowStem($0) == stem }) {
+      var row = rows.remove(at: index)
+      let rowExt = fileExtension(row.title)
+      let mergesLivePhoto =
+        (ext == "mov" && stillExtensions.contains(rowExt))
+        || (stillExtensions.contains(ext) && rowExt == "mov")
+      if mergesLivePhoto {
+        if stillExtensions.contains(ext) {
+          row.title = file.filename
+          row.subtitle = file.relativePath
+        }
+        if !assetId.isEmpty {
+          row.assetId = assetId
+        }
+        row.bytes = (row.bytes ?? 0) + file.bytes
+        row.isLivePhoto = true
+        row.id = "live:\(stem)"
+      } else {
+        row.id = file.relativePath
+        row.title = file.filename
+        row.subtitle = file.relativePath
+        row.bytes = file.bytes
+        row.isLivePhoto = false
+        if !assetId.isEmpty {
+          row.assetId = assetId
+        }
+      }
+      rows.insert(row, at: 0)
+      return rows
+    }
+    rows.insert(
+      ListedUpload(
+        id: file.relativePath,
+        assetId: assetId,
+        title: file.filename,
+        subtitle: file.relativePath,
+        bytes: file.bytes,
+        isLivePhoto: false
+      ),
+      at: 0
+    )
+    return rows
+  }
+
   static func recent(files: [RemoteFile], library: [ExpectedUpload]) -> [ListedUpload] {
     let assetByFilename = assetIds(in: library)
     let paired = pairedStems(in: files)
@@ -172,6 +223,12 @@ enum UploadGroups {
       }
     }
     return stills.intersection(movies)
+  }
+
+  private static func rowStem(_ row: ListedUpload) -> String {
+    let folder = (row.subtitle as NSString).deletingLastPathComponent
+    let stem = URL(fileURLWithPath: row.title).deletingPathExtension().lastPathComponent
+    return "\(folder)/\(filenameKey(stem))"
   }
 
   private static func stemKey(folderAndName file: RemoteFile) -> String {

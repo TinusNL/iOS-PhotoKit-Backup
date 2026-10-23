@@ -55,7 +55,7 @@ struct BackupSettings: Equatable, Sendable {
   }
 
   static let fastBackupConcurrencyKey = "fastBackupConcurrency"
-  static let fastBackupConcurrencyLimit = 8
+  nonisolated static let fastBackupConcurrencyLimit = 8
 
   static var fastBackupConcurrency: Int {
     let stored = AppGroup.defaults.integer(forKey: fastBackupConcurrencyKey)
