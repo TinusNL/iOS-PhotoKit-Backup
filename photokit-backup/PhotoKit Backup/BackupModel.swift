@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Observation
 import Photos
 import UIKit
@@ -43,6 +44,8 @@ final class BackupModel {
   var hasMorePending: Bool { pendingIndex < pendingAssetCount }
   var pendingIsComplete: Bool { didCheckPending && !hasMorePending }
   var uploadLivePhotoMovies = true
+  var requireWifi = BackupSettings.requireWifi
+  var isOnWifi = true
   var fastBackupConcurrency = BackupSettings.fastBackupConcurrency
   var notificationsEnabled = BackupSettings.notificationsEnabled
   var notificationAuthorization: UNAuthorizationStatus = .notDetermined
@@ -53,6 +56,7 @@ final class BackupModel {
   var statusMessage: String?
   var photoStatus: PHAuthorizationStatus = .notDetermined
   var isPreview = false
+  var selectedTab: BackupTab = .backup
   var fastBackupPhase: FastBackupPhase = .idle
   var fastBackupCompleted = 0
   var fastBackupTotal = 0
@@ -76,6 +80,10 @@ final class BackupModel {
   /// Byte total for the progress label. Stays hidden until every file in the backup is included.
   var fastBackupShownTotalBytes: Int64 {
     fastBytesCoverAll ? fastBackupTotalBytes : 0
+  }
+
+  var fastBackupNeedsWifi: Bool {
+    fastBackupPhase == .idle && requireWifi && !isOnWifi
   }
 
   var fastBackupSubtitle: String {
@@ -175,7 +183,9 @@ final class BackupModel {
     guard !isPreview else { return }
     photoStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     uploadLivePhotoMovies = BackupSettings.uploadLivePhotoMovies
+    requireWifi = BackupSettings.requireWifi
     fastBackupConcurrency = BackupSettings.fastBackupConcurrency
+    startWifiMonitor()
     notificationsEnabled = BackupSettings.notificationsEnabled
     didCompleteOnboarding = BackupSettings.didCompleteOnboarding
     if let settings = BackupSettings.load() {
@@ -207,7 +217,8 @@ final class BackupModel {
       let settings = BackupSettings(
         serverURL: serverURL,
         apiKey: apiKey,
-        uploadLivePhotoMovies: uploadLivePhotoMovies
+        uploadLivePhotoMovies: uploadLivePhotoMovies,
+        requireWifi: requireWifi
       )
       try settings.save()
       accountName = name
@@ -387,6 +398,20 @@ final class BackupModel {
     BackupSettings.setUploadLivePhotoMovies(enabled)
   }
 
+  func setRequireWifi(_ enabled: Bool) {
+    requireWifi = enabled
+    guard !isPreview else { return }
+    BackupSettings.setRequireWifi(enabled)
+    applyBackgroundUploadNetworkPolicy()
+    if enabled, !isOnWifi {
+      stopFastBackup()
+    }
+  }
+
+  func showSettings() {
+    selectedTab = .settings
+  }
+
   func setFastBackupConcurrency(_ count: Int) {
     let clamped = min(max(count, 1), BackupSettings.fastBackupConcurrencyLimit)
     fastBackupConcurrency = clamped
@@ -490,6 +515,8 @@ final class BackupModel {
   private var fastBackupStayOpenNoticeID: String?
   private static let pendingPageSize = 5
   private static let recentPageSize = 10
+  private let wifiMonitor = WifiMonitor()
+  private var didStartWifiMonitor = false
   private var libraryTask: Task<Void, Never>?
   private var libraryGeneration = 0
   private var fastBackupTask: Task<Void, Never>?
@@ -619,11 +646,50 @@ final class BackupModel {
     photoStatus = status
     guard status == .authorized else { return }
     let photoLibrary = PHPhotoLibrary.shared()
-    guard !photoLibrary.uploadJobExtensionEnabled else { return }
+    let options = uploadJobOptions()
     do {
-      try photoLibrary.enableUploadJobExtension(with: nil)
+      if photoLibrary.uploadJobExtensionEnabled {
+        try photoLibrary.setUploadJobExtensionOptions(options)
+      } else {
+        try photoLibrary.enableUploadJobExtension(with: options)
+      }
     } catch {
       statusMessage = error.localizedDescription
+    }
+  }
+
+  private func applyBackgroundUploadNetworkPolicy() {
+    guard !isPreview else { return }
+    guard PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized else { return }
+    let photoLibrary = PHPhotoLibrary.shared()
+    guard photoLibrary.uploadJobExtensionEnabled else { return }
+    do {
+      try photoLibrary.setUploadJobExtensionOptions(uploadJobOptions())
+    } catch {
+      statusMessage = error.localizedDescription
+    }
+  }
+
+  private func uploadJobOptions() -> PHAssetResourceUploadJobOptions {
+    let options = PHAssetResourceUploadJobOptions()
+    options.preventsExpensiveNetworkAccess = requireWifi
+    return options
+  }
+
+  private func startWifiMonitor() {
+    guard !isPreview, !didStartWifiMonitor else { return }
+    didStartWifiMonitor = true
+    wifiMonitor.start { [weak self] onWifi in
+      Task { @MainActor [weak self] in
+        self?.noteWifiReachability(onWifi)
+      }
+    }
+  }
+
+  private func noteWifiReachability(_ onWifi: Bool) {
+    isOnWifi = onWifi
+    if requireWifi, !onWifi {
+      stopFastBackup()
     }
   }
 
@@ -639,6 +705,10 @@ final class BackupModel {
 
   func startFastBackup() {
     guard !isPreview, photoStatus == .authorized, fastBackupPhase != .running else { return }
+    if let onWifi = wifiMonitor.knownWifi() {
+      isOnWifi = onWifi
+    }
+    guard !fastBackupNeedsWifi else { return }
     guard !pending.isEmpty else { return }
     if fastBackupPhase == .idle {
       fastQueue = pending
@@ -987,5 +1057,34 @@ final class BackupModel {
     fastFinishedRowIDs = []
     fastRetiredIDs = []
     fastAwaitingConfirm = []
+  }
+}
+
+private final class WifiMonitor: @unchecked Sendable {
+  private let monitor = NWPathMonitor()
+  private let lock = NSLock()
+  private var latest: Bool?
+
+  func start(onChange: @escaping @Sendable (Bool) -> Void) {
+    monitor.pathUpdateHandler = { [weak self] path in
+      let onWifi =
+        path.status == .satisfied
+        && (path.usesInterfaceType(.wifi) || path.usesInterfaceType(.wiredEthernet))
+      self?.store(onWifi)
+      onChange(onWifi)
+    }
+    monitor.start(queue: DispatchQueue(label: "com.tinusnl.photokit-backup.network"))
+  }
+
+  func knownWifi() -> Bool? {
+    lock.lock()
+    defer { lock.unlock() }
+    return latest
+  }
+
+  private func store(_ onWifi: Bool) {
+    lock.lock()
+    latest = onWifi
+    lock.unlock()
   }
 }

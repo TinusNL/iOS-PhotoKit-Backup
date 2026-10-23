@@ -105,6 +105,7 @@ nonisolated enum UploadRequest {
     request.setValue(item.isoTimestamp, forHTTPHeaderField: "X-Created-At")
     request.setValue(
       UploadNaming.contentType(for: item.filename), forHTTPHeaderField: "Content-Type")
+    request.allowsCellularAccess = !settings.requireWifi
     return request
   }
 }

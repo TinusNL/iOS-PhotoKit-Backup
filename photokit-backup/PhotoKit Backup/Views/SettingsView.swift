@@ -9,6 +9,17 @@ struct SettingsView: View {
       Form {
         Section {
           PreferenceToggle(
+            title: "Require Wi-Fi",
+            systemImage: "wifi",
+            detail: model.requireWifi
+              ? "Background uploads run only on Wi-Fi, not on mobile data. Fast Backup starts only while this iPhone is on Wi-Fi."
+              : "Background uploads and Fast Backup can use Wi-Fi or mobile data.",
+            isOn: Binding(
+              get: { model.requireWifi },
+              set: { model.setRequireWifi($0) }
+            )
+          )
+          PreferenceToggle(
             title: "Live Photo movies",
             systemImage: "livephoto",
             detail:

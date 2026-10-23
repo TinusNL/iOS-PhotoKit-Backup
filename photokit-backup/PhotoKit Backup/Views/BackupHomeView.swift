@@ -54,6 +54,8 @@ struct BackupHomeView: View {
             total: model.fastBackupTotal,
             start: { model.startFastBackup() },
             stop: { model.stopFastBackup() },
+            needsWifi: model.fastBackupNeedsWifi,
+            connectWifi: { model.showSettings() },
             isScanning: !model.pendingIsComplete
           )
           .listRowBackground(Color.accentColor.opacity(0.08))

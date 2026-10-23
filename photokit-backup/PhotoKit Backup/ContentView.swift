@@ -58,15 +58,20 @@ struct ContentView: View {
   }
 }
 
+enum BackupTab: Hashable {
+  case backup
+  case settings
+}
+
 struct BackupTabView: View {
   @Bindable var model: BackupModel
 
   var body: some View {
-    TabView {
-      Tab("Backup", systemImage: "icloud") {
+    TabView(selection: $model.selectedTab) {
+      Tab("Backup", systemImage: "icloud", value: BackupTab.backup) {
         BackupHomeView(model: model)
       }
-      Tab("Settings", systemImage: "slider.horizontal.3") {
+      Tab("Settings", systemImage: "slider.horizontal.3", value: BackupTab.settings) {
         SettingsView(model: model)
       }
     }

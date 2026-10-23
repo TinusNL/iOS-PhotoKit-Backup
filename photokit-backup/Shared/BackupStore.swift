@@ -13,6 +13,7 @@ struct BackupSettings: Equatable, Sendable {
   var serverURL: URL
   var apiKey: String
   var uploadLivePhotoMovies: Bool
+  var requireWifi = true
 
   static let livePhotoKey = "uploadLivePhotoMovies"
   static let serverURLKey = "serverURL"
@@ -40,18 +41,33 @@ struct BackupSettings: Equatable, Sendable {
     return BackupSettings(
       serverURL: serverURL,
       apiKey: apiKey,
-      uploadLivePhotoMovies: uploadLivePhotoMovies
+      uploadLivePhotoMovies: uploadLivePhotoMovies,
+      requireWifi: requireWifi
     )
   }
 
   func save() throws {
     AppGroup.defaults.set(serverURL.absoluteString, forKey: Self.serverURLKey)
     AppGroup.defaults.set(uploadLivePhotoMovies, forKey: Self.livePhotoKey)
+    AppGroup.defaults.set(requireWifi, forKey: Self.requireWifiKey)
     try APIKeyStore.save(apiKey)
   }
 
   static func setUploadLivePhotoMovies(_ enabled: Bool) {
     AppGroup.defaults.set(enabled, forKey: livePhotoKey)
+  }
+
+  static let requireWifiKey = "requireWifi"
+
+  static var requireWifi: Bool {
+    if AppGroup.defaults.object(forKey: requireWifiKey) == nil {
+      return true
+    }
+    return AppGroup.defaults.bool(forKey: requireWifiKey)
+  }
+
+  static func setRequireWifi(_ enabled: Bool) {
+    AppGroup.defaults.set(enabled, forKey: requireWifiKey)
   }
 
   static let fastBackupConcurrencyKey = "fastBackupConcurrency"

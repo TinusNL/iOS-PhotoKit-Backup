@@ -10,6 +10,8 @@ struct FastBackupCard: View {
   var total: Int
   var start: () -> Void
   var stop: () -> Void
+  var needsWifi = false
+  var connectWifi: () -> Void = {}
   var isScanning = false
 
   var body: some View {
@@ -28,12 +30,18 @@ struct FastBackupCard: View {
       }
 
       if phase == .idle {
-        Text(
-          "Start a fast backup now to upload large batches of photos and videos faster. Otherwise files will be backed up slowly by iOS in the background."
-        )
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
-        if isScanning {
+        Text(idleDetail)
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+        if needsWifi {
+          Button(action: connectWifi) {
+            Text("Connect to Wi-Fi")
+              .frame(maxWidth: .infinity)
+          }
+          .buttonStyle(.borderedProminent)
+          .controlSize(.large)
+          .tint(.gray)
+        } else if isScanning {
           ProgressView()
             .frame(maxWidth: .infinity, minHeight: 44)
         } else {
@@ -80,10 +88,18 @@ struct FastBackupCard: View {
   private var title: String {
     switch phase {
     case .idle:
-      "Ready to back up"
+      needsWifi ? "Wi-Fi required" : "Ready to back up"
     case .running:
       "Backup in progress"
     }
+  }
+
+  private var idleDetail: String {
+    if needsWifi {
+      return "Fast Backup needs a Wi-Fi connection. Connect to Wi-Fi to upload this batch now."
+    }
+    return
+      "Start a fast backup now to upload large batches of photos and videos faster. Otherwise files will be backed up slowly by iOS in the background."
   }
 }
 
@@ -99,6 +115,25 @@ struct FastBackupCard: View {
       total: 2,
       start: {},
       stop: {}
+    )
+    .listRowBackground(Color.accentColor.opacity(0.08))
+  }
+}
+
+#Preview("Needs Wi-Fi") {
+  List {
+    FastBackupCard(
+      phase: .idle,
+      subtitle: "2 videos waiting to upload",
+      fraction: 0,
+      sentBytes: 0,
+      totalBytes: 0,
+      completed: 0,
+      total: 2,
+      start: {},
+      stop: {},
+      needsWifi: true,
+      connectWifi: {}
     )
     .listRowBackground(Color.accentColor.opacity(0.08))
   }
