@@ -12,6 +12,25 @@ struct FastTransferResult: Sendable {
   var itemBytes: Int64
 }
 
+nonisolated struct FastPreparedFile: Sendable {
+  var request: URLRequest
+  var file: URL
+  var key: String
+  var total: Int64
+  var finishesItem: Bool
+  var expected: ExpectedUpload
+}
+
+nonisolated struct FastPreparedUpload: Sendable {
+  var files: [FastPreparedFile]
+
+  func discard() {
+    for file in files {
+      try? FileManager.default.removeItem(at: file.file)
+    }
+  }
+}
+
 nonisolated enum FastBackupCopy {
   static func waitingLine(for items: [ListedUpload]) -> String {
     "\(mediaPhrase(items)) waiting to upload"
@@ -82,17 +101,16 @@ enum FastBackupPhase: Equatable, Sendable {
 }
 
 nonisolated enum FastUploader {
-  static func transfer(
+  /// Copies the item out of Photos. Photos only finishes one of these at a time, so callers must not hold an upload slot while this runs.
+  static func prepare(
     assetId: String,
     listedID: String,
     settings: BackupSettings,
-    skipKeys: Set<String>,
-    onProgress: @escaping @Sendable (FastProgressEvent) -> Void,
-    onBodiesSent: @escaping @Sendable (FastProgressEvent) -> Void
-  ) async throws -> FastTransferResult {
+    skipKeys: Set<String>
+  ) async throws -> FastPreparedUpload {
     let assets = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil)
     guard let asset = assets.firstObject else {
-      return FastTransferResult(uploaded: [], itemBytes: 0)
+      return FastPreparedUpload(files: [])
     }
     let selected = LibraryScanner.uploads(
       for: asset, uploadLivePhotoMovies: settings.uploadLivePhotoMovies
@@ -101,46 +119,66 @@ nonisolated enum FastUploader {
       if listedID == assetId { return true }
       return upload.expected.key == listedID
     }
+    var files: [FastPreparedFile] = []
+    do {
+      for (offset, upload) in selected.enumerated() {
+        try Task.checkCancellation()
+        guard let request = UploadRequest.make(settings: settings, item: upload.expected) else {
+          throw FastUploadError.unreadable
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        do {
+          try await export(upload.resource, to: url)
+        } catch {
+          try? FileManager.default.removeItem(at: url)
+          throw error
+        }
+        files.append(
+          FastPreparedFile(
+            request: request,
+            file: url,
+            key: upload.expected.key,
+            total: Int64(upload.resource.dataSize ?? upload.expected.bytes ?? 0),
+            finishesItem: offset == selected.count - 1,
+            expected: upload.expected
+          ))
+      }
+    } catch {
+      FastPreparedUpload(files: files).discard()
+      throw error
+    }
+    return FastPreparedUpload(files: files)
+  }
+
+  static func send(
+    _ prepared: FastPreparedUpload,
+    onProgress: @escaping @Sendable (FastProgressEvent) -> Void,
+    onBodiesSent: @escaping @Sendable (FastProgressEvent) -> Void
+  ) async throws -> FastTransferResult {
+    defer { prepared.discard() }
     var uploaded: [ExpectedUpload] = []
     var itemBytes: Int64 = 0
-    for (offset, upload) in selected.enumerated() {
+    for file in prepared.files {
       try Task.checkCancellation()
-      let finishesItem = offset == selected.count - 1
-      let total = Int64(upload.resource.dataSize ?? upload.expected.bytes ?? 0)
-      let size = try await send(
-        upload, settings: settings, total: total, onProgress: onProgress
+      let sent = try await post(
+        request: file.request,
+        file: file.file,
+        key: file.key,
+        total: file.total,
+        onProgress: onProgress
       ) { event in
-        if finishesItem {
+        if file.finishesItem {
           onBodiesSent(event)
         }
       }
-      itemBytes += size
-      var stored = upload.expected
-      if stored.bytes == nil, size > 0 {
-        stored.bytes = Int(size)
+      itemBytes += sent
+      var stored = file.expected
+      if stored.bytes == nil, sent > 0 {
+        stored.bytes = Int(sent)
       }
       uploaded.append(stored)
     }
     return FastTransferResult(uploaded: uploaded, itemBytes: itemBytes)
-  }
-
-  private static func send(
-    _ upload: LibraryUpload,
-    settings: BackupSettings,
-    total: Int64,
-    onProgress: @escaping @Sendable (FastProgressEvent) -> Void,
-    onBodySent: @escaping @Sendable (FastProgressEvent) -> Void
-  ) async throws -> Int64 {
-    guard let request = UploadRequest.make(settings: settings, item: upload.expected) else {
-      throw FastUploadError.unreadable
-    }
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: url) }
-    try await export(upload.resource, to: url)
-    let sent = try await post(
-      request: request, file: url, key: upload.expected.key, total: total, onProgress: onProgress,
-      onBodySent: onBodySent)
-    return max(sent, total)
   }
 
   private static func export(_ resource: PHAssetResource, to url: URL) async throws {
@@ -306,23 +344,71 @@ private nonisolated final class ResumeOnce: @unchecked Sendable {
   }
 }
 
-/// One session for the whole fast backup. A new session per file stalls the app after a few dozen uploads.
+/// One session per upload slot. A single session shares one connection and only one file keeps sending.
 private nonisolated final class FastUploadSession: @unchecked Sendable {
   static let shared = FastUploadSession()
 
-  private let bridge = FastUploadBridge()
-  private let session: URLSession
+  private let lanes: [UploadLane]
+  private let lock = NSLock()
+  private var cursor = 0
 
   private init() {
+    let count = max(1, BackupSettings.fastBackupConcurrencyLimit)
+    lanes = (0..<count).map { _ in UploadLane() }
+  }
+
+  func upload(
+    request: URLRequest,
+    file: URL,
+    key: String,
+    total: Int64,
+    onProgress: @escaping @Sendable (FastProgressEvent) -> Void,
+    onBodySent: @escaping @Sendable (FastProgressEvent) -> Void
+  ) async throws -> (Data, HTTPURLResponse, Int64) {
+    let lane = checkout()
+    defer { checkin(lane) }
+    return try await lane.upload(
+      request: request,
+      file: file,
+      key: key,
+      total: total,
+      onProgress: onProgress,
+      onBodySent: onBodySent
+    )
+  }
+
+  private func checkout() -> UploadLane {
+    lock.lock()
+    defer { lock.unlock() }
+    if let free = lanes.first(where: { !$0.busy }) {
+      free.busy = true
+      return free
+    }
+    let lane = lanes[cursor % lanes.count]
+    cursor += 1
+    lane.busy = true
+    return lane
+  }
+
+  private func checkin(_ lane: UploadLane) {
+    lock.lock()
+    lane.busy = false
+    lock.unlock()
+  }
+}
+
+private nonisolated final class UploadLane: @unchecked Sendable {
+  let bridge = FastUploadBridge()
+  let session: URLSession
+  var busy = false
+
+  init() {
     let configuration = URLSessionConfiguration.default
     configuration.timeoutIntervalForRequest = 120
     configuration.timeoutIntervalForResource = 60 * 60
     configuration.waitsForConnectivity = true
-    configuration.httpMaximumConnectionsPerHost = BackupSettings.fastBackupConcurrencyLimit
-    let queue = OperationQueue()
-    queue.maxConcurrentOperationCount = 1
-    queue.qualityOfService = .utility
-    session = URLSession(configuration: configuration, delegate: bridge, delegateQueue: queue)
+    configuration.httpMaximumConnectionsPerHost = 1
+    session = URLSession(configuration: configuration, delegate: bridge, delegateQueue: nil)
   }
 
   func upload(
@@ -381,12 +467,15 @@ private nonisolated final class FastUploadBridge: NSObject, URLSessionDataDelega
   func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
     let handler = removeHandler(for: task.taskIdentifier)
     guard let handler else { return }
-    if let error {
-      handler.fail(error)
-    } else if let response = task.response as? HTTPURLResponse {
-      handler.succeed(response)
-    } else {
-      handler.fail(FastUploadError.invalidResponse)
+    let response = task.response as? HTTPURLResponse
+    DispatchQueue.global(qos: .utility).async {
+      if let error {
+        handler.fail(error)
+      } else if let response {
+        handler.succeed(response)
+      } else {
+        handler.fail(FastUploadError.invalidResponse)
+      }
     }
   }
 

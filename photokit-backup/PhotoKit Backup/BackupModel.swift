@@ -528,6 +528,7 @@ final class BackupModel {
   private var fastInFlight: Set<String> = []
   private var fastStarted: Set<String> = []
   private var fastOutstanding = 0
+  private var fastPrepared: [PreparedFastItem] = []
   private var fastFinishedKeys: Set<String> = []
   private var fastFinishedRowIDs: Set<String> = []
   private var fastRetiredIDs: Set<String> = []
@@ -756,6 +757,9 @@ final class BackupModel {
 
   private func runFastBackup() async {
     await withTaskGroup(of: Void.self) { group in
+      group.addTask { @MainActor in
+        await self.exportFastBackup()
+      }
       var launched = 0
       while fastBackupPhase == .running, !Task.isCancelled {
         let wanted = max(1, fastBackupConcurrency)
@@ -765,7 +769,7 @@ final class BackupModel {
             await self.fastBackupWorker()
           }
         }
-        if !isLoadingPending, fastOutstanding == 0, fastQueue.isEmpty {
+        if !isLoadingPending, fastOutstanding == 0, fastPrepared.isEmpty, fastQueue.isEmpty {
           finishFastBackup()
           break
         }
@@ -776,19 +780,61 @@ final class BackupModel {
     fastInFlight.removeAll()
   }
 
-  /// Keeps uploading the next file as soon as one has sent its bytes, instead of waiting for the whole group.
-  private func fastBackupWorker() async {
+  /// Photos exports one file at a time. That work stays off the upload slots, so the other files keep sending.
+  private func exportFastBackup() async {
     while fastBackupPhase == .running, !Task.isCancelled {
-      let sendingLimit = max(1, fastBackupConcurrency)
-      while fastInFlight.count >= sendingLimit || fastOutstanding >= sendingLimit {
-        if fastBackupPhase != .running || Task.isCancelled { return }
-        try? await Task.sleep(for: .milliseconds(100))
+      let ahead = max(1, fastBackupConcurrency)
+      if fastPrepared.count >= ahead {
+        try? await Task.sleep(for: .milliseconds(50))
+        continue
       }
       guard let item = claimNextFastItem() else {
         try? await Task.sleep(for: .milliseconds(200))
         continue
       }
-      await uploadUntilSlotFrees(item)
+      let prepared: FastPreparedUpload
+      do {
+        prepared = try await prepareFastItem(item)
+      } catch is CancellationError {
+        fastStarted.remove(item.id)
+        return
+      } catch {
+        fastStarted.remove(item.id)
+        guard fastBackupPhase == .running else { return }
+        serverReachable = false
+        statusMessage = error.localizedDescription
+        stopFastBackup()
+        return
+      }
+      guard fastBackupPhase == .running, !Task.isCancelled else {
+        prepared.discard()
+        fastStarted.remove(item.id)
+        return
+      }
+      if prepared.files.isEmpty {
+        fastStarted.remove(item.id)
+        dropQueued(item)
+        continue
+      }
+      fastPrepared.append(PreparedFastItem(item: item, upload: prepared))
+    }
+  }
+
+  private func fastBackupWorker() async {
+    while fastBackupPhase == .running, !Task.isCancelled {
+      guard await waitForUploadSlot() else { return }
+      guard let next = takePreparedItem() else {
+        try? await Task.sleep(for: .milliseconds(50))
+        continue
+      }
+      guard fastBackupPhase == .running, !Task.isCancelled else {
+        next.upload.discard()
+        fastStarted.remove(next.item.id)
+        return
+      }
+      fastInFlight.insert(next.item.id)
+      fastOutstanding += 1
+      await uploadUntilSlotFrees(next.item, next.upload)
     }
   }
 
@@ -797,30 +843,54 @@ final class BackupModel {
     guard fastBackupPhase == .running else { return nil }
     guard let item = fastQueue.first(where: { !fastStarted.contains($0.id) }) else { return nil }
     fastStarted.insert(item.id)
-    fastInFlight.insert(item.id)
-    fastOutstanding += 1
     return item
   }
 
-  private func uploadUntilSlotFrees(_ item: ListedUpload) async {
-    defer { fastInFlight.remove(item.id) }
-    guard let settings = BackupSettings.load() else {
-      fastStarted.remove(item.id)
-      fastOutstanding = max(0, fastOutstanding - 1)
-      return
-    }
+  private func takePreparedItem() -> PreparedFastItem? {
+    guard !fastPrepared.isEmpty else { return nil }
+    return fastPrepared.removeFirst()
+  }
+
+  private func prepareFastItem(_ item: ListedUpload) async throws -> FastPreparedUpload {
+    guard let settings = BackupSettings.load() else { throw FastUploadError.unreadable }
     let assetId = item.assetId
-    let itemID = item.id
+    let listedID = item.id
     let skipKeys = fastFinishedKeys
+    let work = Task.detached(priority: .utility) {
+      try await FastUploader.prepare(
+        assetId: assetId,
+        listedID: listedID,
+        settings: settings,
+        skipKeys: skipKeys
+      )
+    }
+    return try await withTaskCancellationHandler {
+      try await work.value
+    } onCancel: {
+      work.cancel()
+    }
+  }
+
+  private func waitForUploadSlot() async -> Bool {
+    while fastBackupPhase == .running, !Task.isCancelled {
+      let sendingLimit = max(1, fastBackupConcurrency)
+      if fastInFlight.count < sendingLimit, fastOutstanding < sendingLimit {
+        return true
+      }
+      try? await Task.sleep(for: .milliseconds(100))
+    }
+    return false
+  }
+
+  private func uploadUntilSlotFrees(_ item: ListedUpload, _ prepared: FastPreparedUpload) async {
+    defer { fastInFlight.remove(item.id) }
+    let itemID = item.id
     let relay = FastProgressRelay()
     let gate = SlotGate()
     let work = Task.detached(priority: .utility) { () throws -> FastTransferResult in
       defer { gate.open() }
-      return try await FastUploader.transfer(
-        assetId: assetId,
-        listedID: itemID,
-        settings: settings,
-        skipKeys: skipKeys,
+      return try await FastUploader.send(
+        prepared,
         onProgress: { event in
           relay.submit(event) { latest in
             Task { @MainActor in
@@ -1037,6 +1107,10 @@ final class BackupModel {
     fastInFlight = []
     fastStarted = []
     fastOutstanding = 0
+    for prepared in fastPrepared {
+      prepared.upload.discard()
+    }
+    fastPrepared = []
     fastRetiredIDs = []
     fastAwaitingConfirm = []
     fastItemProgress = [:]
@@ -1058,6 +1132,11 @@ final class BackupModel {
     fastRetiredIDs = []
     fastAwaitingConfirm = []
   }
+}
+
+private struct PreparedFastItem {
+  var item: ListedUpload
+  var upload: FastPreparedUpload
 }
 
 private final class WifiMonitor: @unchecked Sendable {

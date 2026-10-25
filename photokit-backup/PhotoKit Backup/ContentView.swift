@@ -30,6 +30,9 @@ struct ContentView: View {
     .onAppear {
       model.restore()
       model.updateScreenAwake()
+      if model.isSignedIn {
+        model.loadIfNeeded()
+      }
     }
     .onChange(of: model.fastBackupPhase) { _, _ in
       model.updateScreenAwake()
@@ -75,6 +78,7 @@ struct BackupTabView: View {
         SettingsView(model: model)
       }
     }
+    .task { model.loadIfNeeded() }
   }
 }
 
